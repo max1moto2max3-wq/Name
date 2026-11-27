@@ -1,0 +1,26 @@
+{
+  "expo": {
+    "name": "لَمْعَة",
+    "slug": "lamah-studio",
+    "version": "3.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "android": {
+      "package": "com.lamah.studio",
+      "versionCode": 3,
+      "permissions": [
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO"
+      ]
+    },
+    "plugins": [
+      "expo-image-picker",
+      "expo-media-library",
+      "expo-video"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
