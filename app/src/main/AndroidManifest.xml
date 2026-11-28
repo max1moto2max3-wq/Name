@@ -3,11 +3,15 @@
     <application
         android:name=".MediaProApplication"
         android:allowBackup="true"
+        android:icon="@drawable/ic_mediapro"
         android:label="MediaPro Studio"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="false">
-        <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="unspecified">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:screenOrientation="unspecified">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
