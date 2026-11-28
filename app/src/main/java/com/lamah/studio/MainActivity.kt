@@ -382,8 +382,11 @@ class MainActivity : ComponentActivity() {
             video.setMediaController(MediaController(this).apply { setAnchorView(video) })
             video.setOnPreparedListener { player ->
                 videoDurationMs = player.duration.toLong().coerceAtLeast(0L)
-                videoStartMs = 0L
-                videoEndMs = videoDurationMs
+                val videoKey = selectedVideoUri?.let { projectStorageKey(it) }
+                val projectPrefs = getSharedPreferences("vyntro_edit_projects", MODE_PRIVATE)
+                videoStartMs = videoKey?.let { projectPrefs.getLong("${it}_video_start", 0L) }?.coerceIn(0L, videoDurationMs) ?: 0L
+                val savedEnd = videoKey?.let { projectPrefs.getLong("${it}_video_end", videoDurationMs) } ?: videoDurationMs
+                videoEndMs = savedEnd.coerceIn((videoStartMs + 500L).coerceAtMost(videoDurationMs), videoDurationMs)
                 videoStartSeek.progress = 0
                 videoEndSeek.progress = 10000
                 updateVideoTrimLabels()
@@ -437,6 +440,8 @@ class MainActivity : ComponentActivity() {
             .putFloat("${key}_crop_ratio", cropRatio ?: -1f)
             .putString("${key}_overlay_text", overlayText)
             .putString("${key}_filter", filterPreset)
+            .putLong("${key}_video_start", videoStartMs)
+            .putLong("${key}_video_end", videoEndMs)
             .putBoolean("${key}_saved", true)
             .apply()
         status.text = "تم حفظ المشروع"
