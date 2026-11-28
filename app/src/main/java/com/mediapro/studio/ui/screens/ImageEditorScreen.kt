@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Matrix
 import android.graphics.ColorMatrix as AndroidColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.net.Uri
@@ -12,11 +13,13 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -26,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -37,6 +41,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -52,6 +58,8 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
     var brightness by remember { mutableFloatStateOf(0f) }
     var contrast by remember { mutableFloatStateOf(1f) }
     var saturation by remember { mutableFloatStateOf(1f) }
+    var rotation by remember { mutableFloatStateOf(0f) }
+    var overlayText by remember { mutableStateOf("") }
     var exporting by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
 
@@ -76,19 +84,47 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
             OutlinedButton(onClick = onBack) { Text("رجوع") }
             Text("محرر الصور", style = MaterialTheme.typography.titleLarge)
         }
-        AsyncImage(
-            model = imageUri,
-            contentDescription = "معاينة الصورة",
-            modifier = Modifier.fillMaxWidth().height(320.dp).background(MaterialTheme.colorScheme.surfaceVariant),
-            contentScale = ContentScale.Fit,
-            colorFilter = previewFilter
+        Box(
+            Modifier.fillMaxWidth().height(320.dp).background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            AsyncImage(
+                model = imageUri,
+                contentDescription = "معاينة الصورة",
+                modifier = Modifier.fillMaxSize().graphicsLayer(rotationZ = rotation),
+                contentScale = ContentScale.Fit,
+                colorFilter = previewFilter
+            )
+            if (overlayText.isNotBlank()) {
+                Text(
+                    overlayText,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleLarge
+                )
+            }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick = { rotation = (rotation - 90f + 360f) % 360f }, modifier = Modifier.weight(1f)) {
+                Text("تدوير لليسار")
+            }
+            OutlinedButton(onClick = { rotation = (rotation + 90f) % 360f }, modifier = Modifier.weight(1f)) {
+                Text("تدوير لليمين")
+            }
+        }
+        TextField(
+            value = overlayText,
+            onValueChange = { overlayText = it.take(120) },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("نص على الصورة (اختياري)") },
+            singleLine = true
         )
         AdjustmentControl("السطوع", brightness, -100f, 100f, true) { brightness = it }
         AdjustmentControl("التباين", contrast, 0.5f, 2f) { contrast = it }
         AdjustmentControl("التشبّع", saturation, 0f, 2f) { saturation = it }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(
-                onClick = { brightness = 0f; contrast = 1f; saturation = 1f; message = null },
+                onClick = { brightness = 0f; contrast = 1f; saturation = 1f; rotation = 0f; overlayText = ""; message = null },
                 modifier = Modifier.weight(1f)
             ) { Text("إعادة الضبط") }
             Button(
@@ -97,7 +133,7 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
                     message = null
                     scope.launch {
                         val result = withContext(Dispatchers.IO) {
-                            exportAdjustedImage(context, imageUri, matrix)
+                            exportAdjustedImage(context, imageUri, matrix, rotation, overlayText)
                         }
                         exporting = false
                         message = result
@@ -140,17 +176,34 @@ private fun AdjustmentControl(
 private fun exportAdjustedImage(
     context: android.content.Context,
     source: Uri,
-    matrixValues: FloatArray
+    matrixValues: FloatArray,
+    rotation: Float,
+    overlayText: String
 ): String {
     val original = context.contentResolver.openInputStream(source)?.use { BitmapFactory.decodeStream(it) }
         ?: return "تعذّر فتح الصورة."
     val output = try {
-        Bitmap.createBitmap(original.width, original.height, Bitmap.Config.ARGB_8888).also { bitmap ->
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
-                colorFilter = ColorMatrixColorFilter(AndroidColorMatrix(matrixValues))
-            }
-            Canvas(bitmap).drawBitmap(original, 0f, 0f, paint)
+        val transform = Matrix().apply { postRotate(rotation) }
+        val rotated = Bitmap.createBitmap(original, 0, 0, original.width, original.height, transform, true)
+        val bitmap = Bitmap.createBitmap(rotated.width, rotated.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = ColorMatrixColorFilter(AndroidColorMatrix(matrixValues))
         }
+        canvas.drawBitmap(rotated, 0f, 0f, imagePaint)
+        rotated.recycle()
+        if (overlayText.isNotBlank()) {
+            val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = android.graphics.Color.WHITE
+                textSize = (bitmap.width.coerceAtMost(bitmap.height) * 0.055f).coerceAtLeast(24f)
+                setShadowLayer(4f, 2f, 2f, android.graphics.Color.BLACK)
+                textAlign = Paint.Align.CENTER
+            }
+            val x = bitmap.width / 2f
+            val y = bitmap.height - bitmap.height * 0.06f
+            canvas.drawText(overlayText, x, y, textPaint)
+        }
+        bitmap
     } catch (error: Exception) {
         original.recycle()
         return "تعذّر تجهيز الصورة: ${error.localizedMessage ?: "خطأ غير معروف"}"
