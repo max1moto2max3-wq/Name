@@ -59,6 +59,13 @@ class MainActivity : ComponentActivity() {
         window.navigationBarColor = bg
         window.decorView.layoutDirection = View.LAYOUT_DIRECTION_RTL
         createUi()
+        intent?.data?.let { loadMedia(it) }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.data?.let { loadMedia(it) }
     }
 
     private fun createUi() {
