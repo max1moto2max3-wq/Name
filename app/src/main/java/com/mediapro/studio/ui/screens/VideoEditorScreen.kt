@@ -61,20 +61,20 @@ fun VideoEditorScreen(videoUri: Uri, onBack: () -> Unit) {
     var exporting by remember { mutableStateOf(false) }
     val minimumClipMs = duration.coerceAtMost(500f).coerceAtLeast(1f)
 
-    val player = remember(videoUri) { ExoPlayer.Builder(context).build() }
-    LaunchedEffect(player) {
+    val exoPlayer = remember(videoUri) { ExoPlayer.Builder(context).build() }
+    LaunchedEffect(exoPlayer) {
         while (true) {
-            position = player.currentPosition.toFloat().coerceAtLeast(0f)
+            position = exoPlayer.currentPosition.toFloat().coerceAtLeast(0f)
             delay(200)
         }
     }
 
-    DisposableEffect(player, videoUri) {
+    DisposableEffect(exoPlayer, videoUri) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_READY && player.duration > 0) {
-                    duration = player.duration.toFloat()
-                    end = player.duration.toFloat()
+                if (playbackState == Player.STATE_READY && exoPlayer.duration > 0) {
+                    duration = exoPlayer.duration.toFloat()
+                    end = exoPlayer.duration.toFloat()
                     status = "الفيديو جاهز للقص"
                 }
             }
@@ -82,13 +82,13 @@ fun VideoEditorScreen(videoUri: Uri, onBack: () -> Unit) {
                 status = "تعذّرت معاينة الفيديو: ${error.errorCodeName}"
             }
         }
-        player.addListener(listener)
-        player.setMediaItem(MediaItem.fromUri(videoUri))
-        player.prepare()
-        player.playWhenReady = false
+        exoPlayer.addListener(listener)
+        exoPlayer.setMediaItem(MediaItem.fromUri(videoUri))
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = false
         onDispose {
-            player.removeListener(listener)
-            player.release()
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
         }
     }
 
@@ -103,11 +103,11 @@ fun VideoEditorScreen(videoUri: Uri, onBack: () -> Unit) {
         AndroidView(
             factory = { viewContext ->
                 PlayerView(viewContext).apply {
-                    player = player
+                    player = exoPlayer
                     useController = true
                 }
             },
-            update = { it.player = player },
+            update = { it.player = exoPlayer },
             modifier = Modifier.fillMaxWidth().height(240.dp)
         )
         Text("موضع التشغيل: ${formatTime(position.toLong())} / ${formatTime(duration.toLong())}")
@@ -115,7 +115,7 @@ fun VideoEditorScreen(videoUri: Uri, onBack: () -> Unit) {
             value = position.coerceIn(0f, duration.coerceAtLeast(1f)),
             onValueChange = {
                 position = it
-                player.seekTo(it.toLong())
+                exoPlayer.seekTo(it.toLong())
             },
             valueRange = 0f..duration.coerceAtLeast(1f),
             enabled = duration > 0f
@@ -134,7 +134,7 @@ fun VideoEditorScreen(videoUri: Uri, onBack: () -> Unit) {
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(
-                onClick = { player.seekTo(start.toLong()); player.play() },
+                onClick = { exoPlayer.seekTo(start.toLong()); exoPlayer.play() },
                 enabled = duration > 0f,
                 modifier = Modifier.weight(1f)
             ) { Text("معاينة من البداية") }
