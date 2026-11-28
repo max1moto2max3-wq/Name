@@ -1,15 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
+        android:name=".MediaProApplication"
         android:allowBackup="true"
-        android:label="VYNTRO"
-        android:icon="@drawable/ic_vyntro"
-        android:roundIcon="@drawable/ic_vyntro"
+        android:label="MediaPro Studio"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="false">
-        <activity android:name=".MainActivity" android:exported="false" android:screenOrientation="unspecified" />
-        <activity android:name=".HomeActivity" android:exported="true" android:screenOrientation="unspecified">
+        <activity android:name=".MainActivity" android:exported="true" android:screenOrientation="unspecified">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
