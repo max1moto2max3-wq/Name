@@ -40,6 +40,8 @@ class MainActivity : ComponentActivity() {
     private var flipV = false
     private var cropRatio: Float? = null
     private var overlayText: String = ""
+    private var filterPreset: String = "original"
+    private var filterView: View? = null
     private var adjustmentsView: View? = null
     private var cropView: View? = null
     private var textView: View? = null
@@ -83,6 +85,7 @@ class MainActivity : ComponentActivity() {
         gap(body, 14)
         val quickNav = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         quickNav.addView(small("الضبط") { jumpTo(adjustmentsView) })
+        quickNav.addView(small("الفلاتر") { jumpTo(filterView) })
         quickNav.addView(small("القص") { jumpTo(cropView) })
         quickNav.addView(small("النص") { jumpTo(textView) })
         body.addView(quickNav)
@@ -135,6 +138,19 @@ class MainActivity : ComponentActivity() {
         adjustmentsView = adjustments
         gap(body, 20)
 
+        body.addView(section("الفلاتر الاحترافية", "معاينة فورية وتُطبّق نفسها عند التصدير"))
+        gap(body, 12)
+        val filterPanel = panel()
+        val filterRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        filterRow.addView(small("أصلي") { applyFilter("original") })
+        filterRow.addView(small("سينمائي") { applyFilter("cinema") })
+        filterRow.addView(small("حيوي") { applyFilter("vivid") })
+        filterRow.addView(small("أبيض وأسود") { applyFilter("mono") })
+        filterPanel.addView(filterRow)
+        body.addView(filterPanel)
+        filterView = filterPanel
+        gap(body, 20)
+
         body.addView(section("قص الصورة", "اختر أبعاداً شائعة أو ارجع إلى الإطار الأصلي"))
         gap(body, 12)
         val cropPanel = panel()
@@ -170,7 +186,7 @@ class MainActivity : ComponentActivity() {
         body.addView(section("أدوات VYNTRO", "كل ما هو متاح فعلياً في مساحة التحرير"))
         gap(body, 12)
         val features = panel()
-        listOf("استيراد الصور والفيديو من الجهاز", "معاينة وتشغيل الفيديو", "ضبط الإضاءة والتباين والتشبّع", "قص الصورة بنسب متعددة", "إضافة نص وتضمينه في الحفظ", "تدوير الصورة وقلبها", "حفظ الصورة المعدّلة في المعرض").forEach {
+        listOf("استيراد الصور والفيديو من الجهاز", "معاينة وتشغيل الفيديو", "ضبط الإضاءة والتباين والتشبّع", "فلاتر أصلية وسينمائية وحيوية وأبيض وأسود", "قص الصورة بنسب متعددة", "إضافة نص وتضمينه في الحفظ", "تدوير الصورة وقلبها", "حفظ الصورة المعدّلة في المعرض").forEach {
             features.addView(txt("✦   " + it, 13, primary).apply { setPadding(0, dp(9), 0, dp(9)) })
         }
         body.addView(features)
@@ -237,7 +253,7 @@ class MainActivity : ComponentActivity() {
         val mime = contentResolver.getType(uri).orEmpty()
         videoSelected = mime.startsWith("video/")
         brightness = 0f; contrast = 1f; saturation = 1f; rotation = 0f; flipH = false; flipV = false
-        cropRatio = null; overlayText = ""
+        cropRatio = null; overlayText = ""; filterPreset = "original"
         name.text = uri.lastPathSegment?.substringAfterLast('/') ?: "ملف مستورد"
         status.text = if (videoSelected) "فيديو" else "صورة"
         if (videoSelected) {
@@ -294,6 +310,23 @@ class MainActivity : ComponentActivity() {
             0f, 0f, 0f, 1f, 0f
         ))
         matrix.postConcat(ColorMatrix().apply { setSaturation(saturation) })
+        val preset = when (filterPreset) {
+            "cinema" -> ColorMatrix(floatArrayOf(
+                1.10f, 0f, 0f, 0f, -5f,
+                0f, 1.06f, 0f, 0f, -3f,
+                0f, 0f, 0.94f, 0f, 2f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            "vivid" -> ColorMatrix(floatArrayOf(
+                1.12f, 0f, 0f, 0f, 0f,
+                0f, 1.10f, 0f, 0f, 0f,
+                0f, 0f, 1.12f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            "mono" -> ColorMatrix().apply { setSaturation(0f) }
+            else -> null
+        }
+        if (preset != null) matrix.postConcat(preset)
         return matrix
     }
 
@@ -365,6 +398,15 @@ class MainActivity : ComponentActivity() {
         } finally {
             if (cropped !== source && !cropped.isRecycled) cropped.recycle()
         }
+    }
+
+    private fun applyFilter(name: String) {
+        if (bitmap == null || videoSelected) {
+            toast("استورد صورة أولاً لتجربة الفلاتر")
+            return
+        }
+        filterPreset = name
+        refresh()
     }
 
     private fun setCrop(ratio: Float) {
