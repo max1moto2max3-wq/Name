@@ -13,6 +13,14 @@ import androidx.activity.ComponentActivity
 import androidx.exifinterface.media.ExifInterface
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.media3.common.MediaItem
+import androidx.media3.transformer.Composition
+import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.ExportException
+import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.Transformer
+import java.io.File
+import java.io.FileInputStream
 import java.util.Date
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -32,6 +40,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var status: TextView
     private var bitmap: Bitmap? = null
     private var videoSelected = false
+    private var selectedVideoUri: Uri? = null
+    private var videoDurationMs = 0L
+    private var videoStartMs = 0L
+    private var videoEndMs = 0L
+    private var activeTransformer: Transformer? = null
+    private lateinit var videoTrimPanel: LinearLayout
+    private lateinit var videoStartSeek: SeekBar
+    private lateinit var videoEndSeek: SeekBar
+    private lateinit var videoStartLabel: TextView
+    private lateinit var videoEndLabel: TextView
     private var brightness = 0f
     private var contrast = 1f
     private var saturation = 1f
@@ -129,6 +147,67 @@ class MainActivity : ComponentActivity() {
         status = txt("جاهز للتحرير", 11, accent)
         meta.addView(name); meta.addView(status); card.addView(meta)
         body.addView(card)
+        gap(body, 12)
+
+        videoTrimPanel = panel().apply { visibility = View.GONE }
+        videoTrimPanel.addView(txt("قص الفيديو", 17, primary, true))
+        videoTrimPanel.addView(txt("حدد بداية ونهاية المقطع ثم صدّره كملف مستقل.", 11, muted))
+        gap(videoTrimPanel, 10)
+        videoStartLabel = txt("البداية: 00:00", 12, accent, true)
+        videoTrimPanel.addView(videoStartLabel)
+        videoStartSeek = SeekBar(this).apply {
+            max = 10000
+            progressTintList = android.content.res.ColorStateList.valueOf(accent)
+            thumbTintList = android.content.res.ColorStateList.valueOf(accent)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (!fromUser || videoDurationMs <= 0L) return
+                    videoStartMs = videoDurationMs * progress / 10000L
+                    if (videoStartMs >= videoEndMs - 500L) {
+                        videoStartMs = (videoEndMs - 500L).coerceAtLeast(0L)
+                        videoStartSeek.progress = (videoStartMs * 10000L / videoDurationMs).toInt()
+                    }
+                    updateVideoTrimLabels()
+                }
+                override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(bar: SeekBar?) = Unit
+            })
+        }
+        videoTrimPanel.addView(videoStartSeek)
+        gap(videoTrimPanel, 8)
+        videoEndLabel = txt("النهاية: 00:00", 12, accent, true)
+        videoTrimPanel.addView(videoEndLabel)
+        videoEndSeek = SeekBar(this).apply {
+            max = 10000
+            progress = 10000
+            progressTintList = android.content.res.ColorStateList.valueOf(accent)
+            thumbTintList = android.content.res.ColorStateList.valueOf(accent)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (!fromUser || videoDurationMs <= 0L) return
+                    videoEndMs = videoDurationMs * progress / 10000L
+                    if (videoEndMs <= videoStartMs + 500L) {
+                        videoEndMs = (videoStartMs + 500L).coerceAtMost(videoDurationMs)
+                        videoEndSeek.progress = (videoEndMs * 10000L / videoDurationMs).toInt()
+                    }
+                    updateVideoTrimLabels()
+                }
+                override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(bar: SeekBar?) = Unit
+            })
+        }
+        videoTrimPanel.addView(videoEndSeek)
+        gap(videoTrimPanel, 8)
+        val videoActions = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        videoActions.addView(small("معاينة المقطع") {
+            if (videoDurationMs > 0L) {
+                video.seekTo(videoStartMs.toInt())
+                video.start()
+            }
+        })
+        videoActions.addView(small("تصدير المقطع") { exportVideoClip() })
+        videoTrimPanel.addView(videoActions)
+        body.addView(videoTrimPanel)
         gap(body, 14)
         body.addView(button("＋  أضف صورة أو فيديو", accent, bg) {
             picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
@@ -280,13 +359,32 @@ class MainActivity : ComponentActivity() {
         status.text = if (videoSelected) "فيديو" else "صورة"
         if (videoSelected) {
             bitmap = null
+            selectedVideoUri = uri
+            videoDurationMs = 0L
+            videoStartMs = 0L
+            videoEndMs = 0L
+            videoTrimPanel.visibility = View.VISIBLE
+            videoStartSeek.progress = 0
+            videoEndSeek.progress = 10000
+            updateVideoTrimLabels()
             preview.visibility = View.GONE
             empty.visibility = View.GONE
             video.visibility = View.VISIBLE
             video.setVideoURI(uri)
             video.setMediaController(MediaController(this).apply { setAnchorView(video) })
-            video.setOnPreparedListener { player -> player.isLooping = true; player.start() }
+            video.setOnPreparedListener { player ->
+                videoDurationMs = player.duration.toLong().coerceAtLeast(0L)
+                videoStartMs = 0L
+                videoEndMs = videoDurationMs
+                videoStartSeek.progress = 0
+                videoEndSeek.progress = 10000
+                updateVideoTrimLabels()
+                player.isLooping = true
+                player.start()
+            }
         } else {
+            selectedVideoUri = null
+            videoTrimPanel.visibility = View.GONE
             try {
                 val orientation = contentResolver.openInputStream(uri)?.use { input ->
                     ExifInterface(input).getAttributeInt(
@@ -305,6 +403,106 @@ class MainActivity : ComponentActivity() {
                 empty.visibility = View.GONE
                 refresh()
             } catch (_: Exception) { toast("تعذّر تحميل الصورة. جرّب ملفاً بصيغة مدعومة.") }
+        }
+    }
+
+    private fun updateVideoTrimLabels() {
+        if (!::videoStartLabel.isInitialized || !::videoEndLabel.isInitialized) return
+        videoStartLabel.text = "البداية: ${formatVideoTime(videoStartMs)}"
+        videoEndLabel.text = "النهاية: ${formatVideoTime(videoEndMs)}"
+    }
+
+    private fun formatVideoTime(milliseconds: Long): String {
+        val totalSeconds = (milliseconds / 1000L).coerceAtLeast(0L)
+        return String.format(Locale.US, "%02d:%02d", totalSeconds / 60L, totalSeconds % 60L)
+    }
+
+    private fun exportVideoClip() {
+        val uri = selectedVideoUri
+        if (uri == null || videoDurationMs <= 0L) {
+            toast("انتظر حتى يكتمل تحميل الفيديو")
+            return
+        }
+        if (videoEndMs <= videoStartMs + 500L) {
+            toast("حدد مدة مقطع لا تقل عن نصف ثانية")
+            return
+        }
+        val output = File(cacheDir, "vyntro_clip_${System.currentTimeMillis()}.mp4")
+        val clipping = MediaItem.ClippingConfiguration.Builder()
+            .setStartPositionMs(videoStartMs)
+            .setEndPositionMs(videoEndMs)
+            .build()
+        val mediaItem = MediaItem.Builder()
+            .setUri(uri)
+            .setClippingConfiguration(clipping)
+            .build()
+        val editedItem = EditedMediaItem.Builder(mediaItem).build()
+        status.text = "جارٍ تجهيز المقطع..."
+        val transformer = Transformer.Builder(this)
+            .addListener(object : Transformer.Listener {
+                override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                    activeTransformer = null
+                    try {
+                        publishVideoFile(output)
+                        status.text = "اكتمل تصدير الفيديو"
+                        toast("تم حفظ المقطع في Movies/VYNTRO")
+                    } catch (_: Exception) {
+                        output.delete()
+                        status.text = "تعذّر حفظ الفيديو"
+                        toast("اكتمل التحويل لكن تعذّر حفظ الملف")
+                    }
+                }
+
+                override fun onError(
+                    composition: Composition,
+                    exportResult: ExportResult,
+                    exportException: ExportException
+                ) {
+                    activeTransformer = null
+                    output.delete()
+                    status.text = "فشل تصدير الفيديو"
+                    toast("تعذّر تصدير هذا المقطع. جرّب ملف فيديو آخر.")
+                }
+            })
+            .build()
+        activeTransformer = transformer
+        try {
+            transformer.start(editedItem, output.absolutePath)
+        } catch (_: Exception) {
+            activeTransformer = null
+            output.delete()
+            status.text = "تعذّر بدء التصدير"
+            toast("لم نتمكن من بدء تصدير الفيديو")
+        }
+    }
+
+    private fun publishVideoFile(file: File) {
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val values = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, "VYNTRO_$stamp.mp4")
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            if (Build.VERSION.SDK_INT >= 29) {
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/VYNTRO")
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+            }
+        }
+        val destination = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("Could not create video destination")
+        try {
+            val copied = contentResolver.openOutputStream(destination, "w")?.use { output ->
+                FileInputStream(file).use { input -> input.copyTo(output) }
+                true
+            } ?: false
+            if (!copied) throw IllegalStateException("Could not copy exported video")
+            if (Build.VERSION.SDK_INT >= 29) {
+                val publish = ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }
+                contentResolver.update(destination, publish, null, null)
+            }
+        } catch (error: Exception) {
+            contentResolver.delete(destination, null, null)
+            throw error
+        } finally {
+            file.delete()
         }
     }
 
