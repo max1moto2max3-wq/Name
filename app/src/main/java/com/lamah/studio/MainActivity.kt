@@ -10,6 +10,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.*
 import androidx.activity.ComponentActivity
+import androidx.exifinterface.media.ExifInterface
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import java.util.Date
@@ -249,8 +250,16 @@ class MainActivity : ComponentActivity() {
             video.setOnPreparedListener { player -> player.isLooping = true; player.start() }
         } else {
             try {
-                val loaded = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
-                if (loaded == null) { toast("تعذّر فتح هذه الصورة"); return }
+                val orientation = contentResolver.openInputStream(uri)?.use { input ->
+                    ExifInterface(input).getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_NORMAL
+                    )
+                } ?: ExifInterface.ORIENTATION_NORMAL
+                val decoded = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                if (decoded == null) { toast("تعذّر فتح هذه الصورة"); return }
+                val loaded = applyExifOrientation(decoded, orientation)
+                if (loaded !== decoded && !decoded.isRecycled) decoded.recycle()
                 bitmap = loaded
                 video.stopPlayback()
                 video.visibility = View.GONE
@@ -259,6 +268,21 @@ class MainActivity : ComponentActivity() {
                 refresh()
             } catch (_: Exception) { toast("تعذّر تحميل الصورة. جرّب ملفاً بصيغة مدعومة.") }
         }
+    }
+
+    private fun applyExifOrientation(source: Bitmap, orientation: Int): Bitmap {
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.setScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> { matrix.setRotate(90f); matrix.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> { matrix.setRotate(-90f); matrix.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+            else -> return source
+        }
+        return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
     }
 
     private fun colorMatrix(): ColorMatrix {
