@@ -60,7 +60,7 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
     var contrast by remember { mutableFloatStateOf(1f) }
     var saturation by remember { mutableFloatStateOf(1f) }
     var rotation by remember { mutableFloatStateOf(0f) }
-    var squareCrop by remember { mutableStateOf(false) }
+    var cropRatio by remember { mutableStateOf<Float?>(null) }
     var overlayText by remember { mutableStateOf("") }
     var exporting by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -87,7 +87,7 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
             Text("محرر الصور", style = MaterialTheme.typography.titleLarge)
         }
         Box(
-            Modifier.fillMaxWidth().then(if (squareCrop) Modifier.aspectRatio(1f) else Modifier.height(320.dp))
+            Modifier.fillMaxWidth().then(cropRatio?.let { Modifier.aspectRatio(it) } ?: Modifier.height(320.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
@@ -95,7 +95,7 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
                 model = imageUri,
                 contentDescription = "معاينة الصورة",
                 modifier = Modifier.fillMaxSize().graphicsLayer(rotationZ = rotation),
-                contentScale = if (squareCrop) ContentScale.Crop else ContentScale.Fit,
+                contentScale = if (cropRatio != null) ContentScale.Crop else ContentScale.Fit,
                 colorFilter = previewFilter
             )
             if (overlayText.isNotBlank()) {
@@ -107,10 +107,17 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
                 )
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(onClick = { squareCrop = !squareCrop }, modifier = Modifier.weight(1f)) {
-                Text(if (squareCrop) "إلغاء القص المربع" else "قص مربع مركزي")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(1f, 0.8f, 16f / 9f).forEach { ratio ->
+                OutlinedButton(
+                    onClick = { cropRatio = if (cropRatio == ratio) null else ratio },
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(when (ratio) { 1f -> "1:1"; 0.8f -> "4:5"; else -> "16:9" })
+                }
             }
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(onClick = { rotation = (rotation - 90f + 360f) % 360f }, modifier = Modifier.weight(1f)) {
                 Text("تدوير لليسار")
             }
@@ -130,7 +137,7 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
         AdjustmentControl("التشبّع", saturation, 0f, 2f) { saturation = it }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(
-                onClick = { brightness = 0f; contrast = 1f; saturation = 1f; rotation = 0f; squareCrop = false; overlayText = ""; message = null },
+                onClick = { brightness = 0f; contrast = 1f; saturation = 1f; rotation = 0f; cropRatio = null; overlayText = ""; message = null },
                 modifier = Modifier.weight(1f)
             ) { Text("إعادة الضبط") }
             Button(
@@ -140,7 +147,7 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
                     scope.launch {
                         val result = runCatching {
                             withContext(Dispatchers.IO) {
-                                exportAdjustedImage(context, imageUri, matrix, rotation, squareCrop, overlayText)
+                                exportAdjustedImage(context, imageUri, matrix, rotation, cropRatio, overlayText)
                             }
                         }.getOrElse { error ->
                             "فشل التصدير: ${error.localizedMessage ?: "خطأ غير معروف"}"
@@ -188,15 +195,21 @@ private fun exportAdjustedImage(
     source: Uri,
     matrixValues: FloatArray,
     rotation: Float,
-    squareCrop: Boolean,
+    cropRatio: Float?,
     overlayText: String
 ): String {
     val original = decodeOrientedBitmap(context, source)
         ?: return "تعذّر فتح الصورة."
     val output = try {
-        val sourceBitmap = if (squareCrop) {
-            val side = minOf(original.width, original.height)
-            Bitmap.createBitmap(original, (original.width - side) / 2, (original.height - side) / 2, side, side)
+        val sourceBitmap = if (cropRatio != null && cropRatio > 0f) {
+            val sourceRatio = original.width.toFloat() / original.height.toFloat()
+            if (sourceRatio > cropRatio) {
+                val cropWidth = (original.height * cropRatio).toInt().coerceIn(1, original.width)
+                Bitmap.createBitmap(original, (original.width - cropWidth) / 2, 0, cropWidth, original.height)
+            } else {
+                val cropHeight = (original.width / cropRatio).toInt().coerceIn(1, original.height)
+                Bitmap.createBitmap(original, 0, (original.height - cropHeight) / 2, original.width, cropHeight)
+            }
         } else original
         val transform = Matrix().apply { postRotate(rotation) }
         val rotated = Bitmap.createBitmap(sourceBitmap, 0, 0, sourceBitmap.width, sourceBitmap.height, transform, true)
