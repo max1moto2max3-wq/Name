@@ -92,11 +92,19 @@ class HomeActivity : ComponentActivity() {
         entries.forEach { entry ->
             val parts=entry.split("|",limit=2);val uri=parts[0];val display=parts.getOrNull(1)?: "وسائط VYNTRO"
             val item=col().apply{setPadding(dp(14),dp(12),dp(14),dp(12));background=shape(panel,16)}
-            item.addView(label(display,14,white,true));gap(item,8)
+            item.addView(label(display,14,white,true))
+            val savedKey = android.util.Base64.encodeToString(
+                uri.toByteArray(Charsets.UTF_8),
+                android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP
+            )
+            val isSavedProject = getSharedPreferences("vyntro_edit_projects", MODE_PRIVATE)
+                .getBoolean("${savedKey}_saved", false)
+            if (isSavedProject) item.addView(label("مشروع محفوظ • يمكن استعادة التعديلات",11,accent))
+            gap(item,8)
             item.addView(action("فتح في المحرر",raised,accent){openEditor(Uri.parse(uri))})
             content.addView(item);gap(content,9)
         }
-        content.addView(label("هذه قائمة بالملفات المفتوحة مؤخراً، وليست مشاريع متعددة الطبقات قابلة للاستعادة.",11,muted))
+        content.addView(label("يمكن حفظ تعديلات كل ملف من المحرر وإعادة فتحه لاحقاً. الطبقات المتعددة غير مدعومة بعد.",11,muted))
     }
 
     private fun settingsPage() {
