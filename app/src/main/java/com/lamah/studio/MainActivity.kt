@@ -40,6 +40,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var status: TextView
     private var bitmap: Bitmap? = null
     private var videoSelected = false
+    private var currentMediaUri: Uri? = null
     private var selectedVideoUri: Uri? = null
     private var videoDurationMs = 0L
     private var videoStartMs = 0L
@@ -293,6 +294,8 @@ class MainActivity : ComponentActivity() {
         body.addView(features)
         gap(body, 20)
         body.addView(button("حفظ الصورة المعدّلة", accent, bg) { exportImage() }, LinearLayout.LayoutParams(-1, dp(52)))
+        gap(body, 8)
+        body.addView(button("حفظ المشروع والتعديلات", raised, primary) { saveProject() }, LinearLayout.LayoutParams(-1, dp(48)))
         gap(body, 10)
         body.addView(txt("تتم معالجة الصور على جهازك دون رفعها إلى خادم.", 11, muted).apply { gravity = Gravity.CENTER })
         scroll.addView(body)
@@ -351,10 +354,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadMedia(uri: Uri) {
+        currentMediaUri = uri
         val mime = contentResolver.getType(uri).orEmpty()
         videoSelected = mime.startsWith("video/")
         brightness = 0f; contrast = 1f; saturation = 1f; rotation = 0f; flipH = false; flipV = false
         cropRatio = null; overlayText = ""; filterPreset = "original"
+        restoreProject(uri)
         name.text = uri.lastPathSegment?.substringAfterLast('/') ?: "ملف مستورد"
         status.text = if (videoSelected) "فيديو" else "صورة"
         if (videoSelected) {
@@ -404,6 +409,51 @@ class MainActivity : ComponentActivity() {
                 refresh()
             } catch (_: Exception) { toast("تعذّر تحميل الصورة. جرّب ملفاً بصيغة مدعومة.") }
         }
+    }
+
+    private fun projectStorageKey(uri: Uri): String =
+        android.util.Base64.encodeToString(
+            uri.toString().toByteArray(Charsets.UTF_8),
+            android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP
+        )
+
+    private fun saveProject() {
+        val uri = currentMediaUri
+        if (uri == null) {
+            toast("استورد ملفاً أولاً لحفظ المشروع")
+            return
+        }
+        val key = projectStorageKey(uri)
+        getSharedPreferences("vyntro_edit_projects", MODE_PRIVATE).edit()
+            .putFloat("${key}_brightness", brightness)
+            .putFloat("${key}_contrast", contrast)
+            .putFloat("${key}_saturation", saturation)
+            .putFloat("${key}_rotation", rotation)
+            .putBoolean("${key}_flip_h", flipH)
+            .putBoolean("${key}_flip_v", flipV)
+            .putFloat("${key}_crop_ratio", cropRatio ?: -1f)
+            .putString("${key}_overlay_text", overlayText)
+            .putString("${key}_filter", filterPreset)
+            .putBoolean("${key}_saved", true)
+            .apply()
+        status.text = "تم حفظ المشروع"
+        toast("تم حفظ إعدادات المشروع على الجهاز")
+    }
+
+    private fun restoreProject(uri: Uri) {
+        val key = projectStorageKey(uri)
+        val prefs = getSharedPreferences("vyntro_edit_projects", MODE_PRIVATE)
+        if (!prefs.getBoolean("${key}_saved", false)) return
+        brightness = prefs.getFloat("${key}_brightness", 0f)
+        contrast = prefs.getFloat("${key}_contrast", 1f)
+        saturation = prefs.getFloat("${key}_saturation", 1f)
+        rotation = prefs.getFloat("${key}_rotation", 0f)
+        flipH = prefs.getBoolean("${key}_flip_h", false)
+        flipV = prefs.getBoolean("${key}_flip_v", false)
+        val savedRatio = prefs.getFloat("${key}_crop_ratio", -1f)
+        cropRatio = if (savedRatio > 0f) savedRatio else null
+        overlayText = prefs.getString("${key}_overlay_text", "").orEmpty()
+        filterPreset = prefs.getString("${key}_filter", "original") ?: "original"
     }
 
     private fun updateVideoTrimLabels() {
