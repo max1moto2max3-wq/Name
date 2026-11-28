@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
+        android:name=".MediaProApplication"
         android:allowBackup="true"
-        android:label="لَمْعَة"
-        android:icon="@android:drawable/ic_menu_gallery"
-        android:roundIcon="@android:drawable/ic_menu_gallery"
+        android:icon="@drawable/ic_mediapro"
+        android:label="MediaPro Studio"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="false">

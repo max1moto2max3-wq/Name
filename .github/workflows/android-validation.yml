@@ -1,13 +1,14 @@
-name: Native Android validation
+name: MediaPro Studio validation
 
 on:
   push:
-    branches: [main, native-android-redesign]
+    branches: [main, native-android-redesign, lamah-native-editor, mediapro-studio-compose]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
-  build:
+  unit-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,12 +19,32 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
-      - name: Build native Android debug APK
+      - name: Compile Kotlin and run unit tests
+        run: gradle --no-daemon :app:compileDebugKotlin :app:testDebugUnitTest
+
+  release-build:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/mediapro-studio-compose') || (github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'mediapro-studio-compose')
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build standalone debug APK
         run: gradle --no-daemon :app:assembleDebug
-      - name: Upload debug APK
+      - name: Build standalone release APK
+        run: gradle --no-daemon :app:assembleRelease
+      - name: Upload APK builds
         uses: actions/upload-artifact@v4
         with:
-          name: Lamah-native-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: MediaPro-Studio-apks
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release-unsigned.apk
           if-no-files-found: error
           retention-days: 14
