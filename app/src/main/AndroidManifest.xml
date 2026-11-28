@@ -3,8 +3,8 @@
     <application
         android:allowBackup="true"
         android:label="VYNTRO"
-        android:icon="@android:drawable/ic_menu_gallery"
-        android:roundIcon="@android:drawable/ic_menu_gallery"
+        android:icon="@drawable/ic_vyntro"
+        android:roundIcon="@drawable/ic_vyntro"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.NoActionBar"
         android:usesCleartextTraffic="false">
