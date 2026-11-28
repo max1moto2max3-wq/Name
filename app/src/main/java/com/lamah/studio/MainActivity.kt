@@ -187,47 +187,90 @@ class MainActivity : ComponentActivity() {
         return matrix
     }
 
-    private fun transformMatrix(): Matrix = Matrix().apply {
-        postRotate(rotation)
-        postScale(if (flipH) -1f else 1f, if (flipV) -1f else 1f)
+    private fun transformMatrix(width: Int, height: Int): Matrix {
+        val matrix = Matrix()
+        matrix.postRotate(rotation)
+        matrix.postScale(if (flipH) -1f else 1f, if (flipV) -1f else 1f)
+        val bounds = RectF(0f, 0f, width.toFloat(), height.toFloat())
+        matrix.mapRect(bounds)
+        matrix.postTranslate(-bounds.left, -bounds.top)
+        return matrix
+    }
+
+    /**
+     * Creates the exact bitmap used by both preview and export. The transformed
+     * bounds are normalized so rotations never crop the corners.
+     */
+    private fun renderEditedBitmap(source: Bitmap): Bitmap {
+        val matrix = transformMatrix(source.width, source.height)
+        val bounds = RectF(0f, 0f, source.width.toFloat(), source.height.toFloat())
+        matrix.mapRect(bounds)
+        val outWidth = bounds.width().roundToInt().coerceAtLeast(1)
+        val outHeight = bounds.height().roundToInt().coerceAtLeast(1)
+        val output = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+            colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix())
+        }
+        Canvas(output).drawBitmap(source, matrix, paint)
+        return output
     }
 
     private fun refresh() {
         val source = bitmap ?: return
-        preview.colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix())
-        preview.imageMatrix = transformMatrix()
-        preview.scaleType = ImageView.ScaleType.MATRIX
-        preview.setImageBitmap(source)
+        try {
+            val rendered = renderEditedBitmap(source)
+            val previous = preview.drawable
+            preview.setImageBitmap(rendered)
+            if (previous is android.graphics.drawable.BitmapDrawable) {
+                val oldBitmap = previous.bitmap
+                if (oldBitmap !== source && oldBitmap !== rendered && !oldBitmap.isRecycled) oldBitmap.recycle()
+            }
+            preview.scaleType = ImageView.ScaleType.FIT_CENTER
+        } catch (_: OutOfMemoryError) {
+            toast("الصورة كبيرة جداً للمعاينة على ذاكرة الجهاز")
+        } catch (_: Exception) {
+            toast("تعذّرت معاينة التعديلات")
+        }
     }
 
     private fun exportImage() {
         val source = bitmap
-        if (source == null || videoSelected) { toast("استورد صورة أولاً لحفظ النسخة المعدّلة"); return }
-        var transformed: Bitmap? = null
+        if (source == null || videoSelected) {
+            toast("استورد صورة أولاً لحفظ النسخة المعدّلة")
+            return
+        }
         var output: Bitmap? = null
+        var target: Uri? = null
         try {
-            transformed = Bitmap.createBitmap(source, 0, 0, source.width, source.height, transformMatrix(), true)
-            output = Bitmap.createBitmap(transformed.width, transformed.height, Bitmap.Config.ARGB_8888)
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix()) }
-            Canvas(output).drawBitmap(transformed, 0f, 0f, paint)
+            output = renderEditedBitmap(source)
             val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             val values = ContentValues().apply {
                 put(MediaStore.Images.Media.DISPLAY_NAME, "Lamah_" + stamp + ".jpg")
                 put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-                if (Build.VERSION.SDK_INT >= 29) put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Lamah")
+                if (Build.VERSION.SDK_INT >= 29) {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Lamah")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
             }
-            val target = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                ?: throw IllegalStateException("MediaStore insert failed")
-            val saved = contentResolver.openOutputStream(target)?.use {
-                output.compress(Bitmap.CompressFormat.JPEG, 95, it)
+            target = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("تعذّر إنشاء ملف الصورة")
+            val saved = contentResolver.openOutputStream(target!!, "w")?.use { stream ->
+                output.compress(Bitmap.CompressFormat.JPEG, 95, stream)
             } ?: false
-            if (!saved) throw IllegalStateException("Image encoding failed")
-            toast("تم حفظ الصورة في Pictures/Lamah")
+            if (!saved) throw IllegalStateException("تعذّر ترميز الصورة")
+            if (Build.VERSION.SDK_INT >= 29) {
+                val publish = ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }
+                contentResolver.update(target!!, publish, null, null)
+            }
+            toast("تم حفظ الصورة المعدّلة في Pictures/Lamah")
+        } catch (_: OutOfMemoryError) {
+            target?.let { contentResolver.delete(it, null, null) }
+            toast("الصورة أكبر من الذاكرة المتاحة. جرّب صورة أصغر.")
         } catch (_: Exception) {
+            target?.let { contentResolver.delete(it, null, null) }
             toast("تعذّر حفظ الصورة. حاول مجدداً.")
         } finally {
             output?.recycle()
-            if (transformed != null && transformed !== source) transformed.recycle()
         }
     }
 
