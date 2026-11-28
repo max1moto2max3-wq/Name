@@ -1,5 +1,11 @@
 package com.mediapro.studio.ui.screens
 import android.net.Uri
+import android.database.Cursor
+import android.provider.OpenableColumns
+import android.webkit.MimeTypeMap
+import android.widget.Toast
+import java.io.File
+import java.util.UUID
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,21 +31,30 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.mediapro.studio.domain.model.MediaProject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 @Composable
 fun HomeScreen(projects: List<MediaProject>, onMediaPicked: (Uri, String?, String) -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
         if (uri != null) {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            scope.launch {
+                val mime = context.contentResolver.getType(uri)
+                val name = queryDisplayName(context, uri)
+                val localFile = withContext(Dispatchers.IO) { copyImportedMedia(context, uri, mime) }
+                if (localFile != null) {
+                    onMediaPicked(Uri.fromFile(localFile), mime, name)
+                } else {
+                    Toast.makeText(context, "تعذّر استيراد الملف. تحقق من توفر مساحة التخزين ثم أعد المحاولة.", Toast.LENGTH_LONG).show()
+                }
             }
-            val mime = context.contentResolver.getType(uri)
-            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "وسائط جديدة"
-            onMediaPicked(uri, mime, name)
         }
     }
     LazyColumn(
@@ -93,5 +108,37 @@ fun HomeScreen(projects: List<MediaProject>, onMediaPicked: (Uri, String?, Strin
             }
         }
         item { Spacer(Modifier.height(12.dp)) }
+    }
+}
+
+
+private fun queryDisplayName(context: android.content.Context, uri: Uri): String {
+    val projection = arrayOf(OpenableColumns.DISPLAY_NAME)
+    return runCatching {
+        context.contentResolver.query(uri, projection, null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(cursor.getColumnIndexOrThrow(OpenableColumns.DISPLAY_NAME))
+            else null
+        }
+    }.getOrNull()?.takeIf { it.isNotBlank() } ?: "وسائط جديدة"
+}
+
+private fun copyImportedMedia(context: android.content.Context, uri: Uri, mimeType: String?): File? {
+    val extension = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
+        ?: if (mimeType?.startsWith("video/") == true) "mp4" else "jpg"
+    val directory = File(context.filesDir, "imported_media")
+    if (!directory.exists() && !directory.mkdirs()) return null
+    val destination = File(directory, "${UUID.randomUUID()}.$extension")
+    return try {
+        val input = context.contentResolver.openInputStream(uri) ?: return null
+        input.use { source ->
+            destination.outputStream().use { output -> source.copyTo(output) }
+        }
+        if (destination.length() > 0L) destination else {
+            destination.delete()
+            null
+        }
+    } catch (_: Exception) {
+        destination.delete()
+        null
     }
 }
