@@ -20,7 +20,7 @@ jobs:
         with:
           gradle-version: '8.9'
       - name: Run unit tests
-        run: gradle --no-daemon :app:testDebugUnitTest
+        run: gradle --no-daemon :app:compileDebugKotlin :app:testDebugUnitTest
 
   release-build:
     if: github.event_name == 'workflow_dispatch'
