@@ -1,13 +1,14 @@
-name: MediaPro Studio Android validation
+name: MediaPro Studio validation
 
 on:
   push:
     branches: [main, native-android-redesign, lamah-native-editor, mediapro-studio-compose]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
-  build:
+  unit-tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +21,20 @@ jobs:
           gradle-version: '8.9'
       - name: Run unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
+
+  release-build:
+    if: github.event_name == 'workflow_dispatch'
+    needs: unit-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
       - name: Build standalone debug APK
         run: gradle --no-daemon :app:assembleDebug
       - name: Build standalone release APK
