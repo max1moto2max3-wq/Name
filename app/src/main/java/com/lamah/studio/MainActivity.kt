@@ -60,6 +60,7 @@ class MainActivity : ComponentActivity() {
     private var cropRatio: Float? = null
     private var overlayText: String = ""
     private var filterPreset: String = "original"
+    private val adjustmentSeekBars = mutableMapOf<String, SeekBar>()
     private var filterView: View? = null
     private var adjustmentsView: View? = null
     private var cropView: View? = null
@@ -279,6 +280,7 @@ class MainActivity : ComponentActivity() {
             cropRatio = null
             overlayText = ""
             filterPreset = "original"
+            updateAdjustmentControls()
             refresh()
             toast("تمت إعادة الصورة إلى حالتها الأصلية")
         })
@@ -360,6 +362,7 @@ class MainActivity : ComponentActivity() {
         brightness = 0f; contrast = 1f; saturation = 1f; rotation = 0f; flipH = false; flipV = false
         cropRatio = null; overlayText = ""; filterPreset = "original"
         restoreProject(uri)
+        updateAdjustmentControls()
         name.text = uri.lastPathSegment?.substringAfterLast('/') ?: "ملف مستورد"
         status.text = if (videoSelected) "فيديو" else "صورة"
         if (videoSelected) {
@@ -454,6 +457,12 @@ class MainActivity : ComponentActivity() {
         cropRatio = if (savedRatio > 0f) savedRatio else null
         overlayText = prefs.getString("${key}_overlay_text", "").orEmpty()
         filterPreset = prefs.getString("${key}_filter", "original") ?: "original"
+    }
+
+    private fun updateAdjustmentControls() {
+        adjustmentSeekBars["الإضاءة"]?.progress = (brightness * 100f).roundToInt() + 100
+        adjustmentSeekBars["التباين"]?.progress = (contrast * 100f).roundToInt()
+        adjustmentSeekBars["التشبّع"]?.progress = (saturation * 100f).roundToInt()
     }
 
     private fun updateVideoTrimLabels() {
@@ -803,6 +812,7 @@ class MainActivity : ComponentActivity() {
                 override fun onStopTrackingTouch(bar: SeekBar?) = Unit
             })
         }
+        adjustmentSeekBars[title] = seek
         block.addView(seek); parent.addView(block); gap(parent, 8)
     }
 
