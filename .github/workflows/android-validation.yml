@@ -1,8 +1,8 @@
-name: Native Android validation
+name: MediaPro Studio Android validation
 
 on:
   push:
-    branches: [main, native-android-redesign, lamah-native-editor]
+    branches: [main, native-android-redesign, lamah-native-editor, mediapro-studio-compose]
   pull_request:
     branches: [main]
 
@@ -27,7 +27,7 @@ jobs:
       - name: Upload APK builds
         uses: actions/upload-artifact@v4
         with:
-          name: Lamah-native-apks
+          name: MediaPro-Studio-apks
           path: |
             app/build/outputs/apk/debug/app-debug.apk
             app/build/outputs/apk/release/app-release-unsigned.apk
