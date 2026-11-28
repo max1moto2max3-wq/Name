@@ -138,8 +138,12 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
                     exporting = true
                     message = null
                     scope.launch {
-                        val result = withContext(Dispatchers.IO) {
-                            exportAdjustedImage(context, imageUri, matrix, rotation, squareCrop, overlayText)
+                        val result = runCatching {
+                            withContext(Dispatchers.IO) {
+                                exportAdjustedImage(context, imageUri, matrix, rotation, squareCrop, overlayText)
+                            }
+                        }.getOrElse { error ->
+                            "فشل التصدير: ${error.localizedMessage ?: "خطأ غير معروف"}"
                         }
                         exporting = false
                         message = result
