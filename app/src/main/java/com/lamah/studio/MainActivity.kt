@@ -10,20 +10,29 @@ import android.view.Gravity
 import android.view.View
 import android.widget.*
 import androidx.activity.ComponentActivity
+import androidx.exifinterface.media.ExifInterface
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.media3.common.MediaItem
+import androidx.media3.transformer.Composition
+import androidx.media3.transformer.EditedMediaItem
+import androidx.media3.transformer.ExportException
+import androidx.media3.transformer.ExportResult
+import androidx.media3.transformer.Transformer
+import java.io.File
+import java.io.FileInputStream
 import java.util.Date
 import java.text.SimpleDateFormat
 import java.util.Locale
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
-    private val bg = Color.rgb(12, 14, 19)
-    private val panelColor = Color.rgb(23, 26, 34)
-    private val raised = Color.rgb(34, 37, 48)
-    private val accent = Color.rgb(176, 145, 255)
-    private val primary = Color.rgb(246, 244, 251)
-    private val muted = Color.rgb(157, 162, 177)
+    private val bg = Color.rgb(8, 10, 19)
+    private val panelColor = Color.rgb(19, 23, 38)
+    private val raised = Color.rgb(31, 38, 59)
+    private val accent = Color.rgb(116, 224, 255)
+    private val primary = Color.rgb(244, 248, 255)
+    private val muted = Color.rgb(151, 166, 190)
     private lateinit var preview: ImageView
     private lateinit var video: VideoView
     private lateinit var empty: LinearLayout
@@ -31,12 +40,31 @@ class MainActivity : ComponentActivity() {
     private lateinit var status: TextView
     private var bitmap: Bitmap? = null
     private var videoSelected = false
+    private var currentMediaUri: Uri? = null
+    private var selectedVideoUri: Uri? = null
+    private var videoDurationMs = 0L
+    private var videoStartMs = 0L
+    private var videoEndMs = 0L
+    private var activeTransformer: Transformer? = null
+    private lateinit var videoTrimPanel: LinearLayout
+    private lateinit var videoStartSeek: SeekBar
+    private lateinit var videoEndSeek: SeekBar
+    private lateinit var videoStartLabel: TextView
+    private lateinit var videoEndLabel: TextView
     private var brightness = 0f
     private var contrast = 1f
     private var saturation = 1f
     private var rotation = 0f
     private var flipH = false
     private var flipV = false
+    private var cropRatio: Float? = null
+    private var overlayText: String = ""
+    private var filterPreset: String = "original"
+    private val adjustmentSeekBars = mutableMapOf<String, SeekBar>()
+    private var filterView: View? = null
+    private var adjustmentsView: View? = null
+    private var cropView: View? = null
+    private var textView: View? = null
 
     private val picker = registerForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(20)
@@ -51,6 +79,13 @@ class MainActivity : ComponentActivity() {
         window.navigationBarColor = bg
         window.decorView.layoutDirection = View.LAYOUT_DIRECTION_RTL
         createUi()
+        intent?.data?.let { loadMedia(it) }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        intent.data?.let { loadMedia(it) }
     }
 
     private fun createUi() {
@@ -67,16 +102,24 @@ class MainActivity : ComponentActivity() {
 
         val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(0, -2, 1f) }
-        brand.addView(txt("لَمْعَة", 27, primary, true))
-        brand.addView(txt("استوديو إبداعي للصور والفيديو", 12, muted))
+        brand.addView(txt("VYNTRO", 27, primary, true))
+        brand.addView(txt("استوديو بصري يصنع الفرق", 12, muted))
         header.addView(brand)
-        header.addView(txt("مشروع محلي  •  01", 11, accent, true).apply {
+        header.addView(txt("CREATIVE STUDIO  •  01", 10, accent, true).apply {
             setPadding(dp(12), dp(9), dp(12), dp(9)); background = shape(raised, 18)
         })
         body.addView(header)
+        gap(body, 14)
+        val quickNav = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        quickNav.addView(small("الضبط") { jumpTo(adjustmentsView) })
+        quickNav.addView(small("الفلاتر") { jumpTo(filterView) })
+        quickNav.addView(small("القص") { jumpTo(cropView) })
+        quickNav.addView(small("النص") { jumpTo(textView) })
+        body.addView(quickNav)
+        gap(body, 14)
         gap(body, 24)
-        body.addView(txt("حوّل لحظاتك إلى قصة", 23, primary, true))
-        body.addView(txt("كل أدواتك الإبداعية في مساحة واحدة", 13, muted))
+        body.addView(txt("رؤيتك. بأسلوبك.", 25, primary, true))
+        body.addView(txt("اصنع صوراً تستحق أن تُروى", 13, muted))
         gap(body, 18)
 
         val card = LinearLayout(this).apply {
@@ -106,65 +149,264 @@ class MainActivity : ComponentActivity() {
         status = txt("جاهز للتحرير", 11, accent)
         meta.addView(name); meta.addView(status); card.addView(meta)
         body.addView(card)
+        gap(body, 12)
+
+        videoTrimPanel = panel().apply { visibility = View.GONE }
+        videoTrimPanel.addView(txt("قص الفيديو", 17, primary, true))
+        videoTrimPanel.addView(txt("حدد بداية ونهاية المقطع ثم صدّره كملف مستقل.", 11, muted))
+        gap(videoTrimPanel, 10)
+        videoStartLabel = txt("البداية: 00:00", 12, accent, true)
+        videoTrimPanel.addView(videoStartLabel)
+        videoStartSeek = SeekBar(this).apply {
+            max = 10000
+            progressTintList = android.content.res.ColorStateList.valueOf(accent)
+            thumbTintList = android.content.res.ColorStateList.valueOf(accent)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (!fromUser || videoDurationMs <= 0L) return
+                    videoStartMs = videoDurationMs * progress / 10000L
+                    if (videoStartMs >= videoEndMs - 500L) {
+                        videoStartMs = (videoEndMs - 500L).coerceAtLeast(0L)
+                        videoStartSeek.progress = (videoStartMs * 10000L / videoDurationMs).toInt()
+                    }
+                    updateVideoTrimLabels()
+                }
+                override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(bar: SeekBar?) = Unit
+            })
+        }
+        videoTrimPanel.addView(videoStartSeek)
+        gap(videoTrimPanel, 8)
+        videoEndLabel = txt("النهاية: 00:00", 12, accent, true)
+        videoTrimPanel.addView(videoEndLabel)
+        videoEndSeek = SeekBar(this).apply {
+            max = 10000
+            progress = 10000
+            progressTintList = android.content.res.ColorStateList.valueOf(accent)
+            thumbTintList = android.content.res.ColorStateList.valueOf(accent)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    if (!fromUser || videoDurationMs <= 0L) return
+                    videoEndMs = videoDurationMs * progress / 10000L
+                    if (videoEndMs <= videoStartMs + 500L) {
+                        videoEndMs = (videoStartMs + 500L).coerceAtMost(videoDurationMs)
+                        videoEndSeek.progress = (videoEndMs * 10000L / videoDurationMs).toInt()
+                    }
+                    updateVideoTrimLabels()
+                }
+                override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(bar: SeekBar?) = Unit
+            })
+        }
+        videoTrimPanel.addView(videoEndSeek)
+        gap(videoTrimPanel, 8)
+        val videoActions = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        videoActions.addView(small("معاينة المقطع") {
+            if (videoDurationMs > 0L) {
+                video.seekTo(videoStartMs.toInt())
+                video.start()
+            }
+        })
+        videoActions.addView(small("تصدير المقطع") { exportVideoClip() })
+        videoTrimPanel.addView(videoActions)
+        body.addView(videoTrimPanel)
         gap(body, 14)
-        body.addView(button("＋  استيراد الصور والفيديو", accent, bg) {
+        body.addView(button("＋  أضف صورة أو فيديو", accent, bg) {
             picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
         }, LinearLayout.LayoutParams(-1, dp(52)))
         gap(body, 24)
 
-        body.addView(section("أدوات الضبط", "تحكم دقيق بمظهر الصورة"))
+        body.addView(section("ضبط الصورة", "تحكم في الضوء والعمق والألوان"))
         gap(body, 12)
         val adjustments = panel()
         slider(adjustments, "الإضاءة", -100, 100, 0) { brightness = it / 100f; refresh() }
         slider(adjustments, "التباين", 0, 200, 100) { contrast = it / 100f; refresh() }
         slider(adjustments, "التشبّع", 0, 200, 100) { saturation = it / 100f; refresh() }
         body.addView(adjustments)
+        adjustmentsView = adjustments
         gap(body, 20)
 
-        body.addView(section("التحويل والتكوين", "رتّب الكادر بالطريقة التي تريدها"))
+        body.addView(section("الفلاتر الاحترافية", "معاينة فورية وتُطبّق نفسها عند التصدير"))
+        gap(body, 12)
+        val filterPanel = panel()
+        val filterRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        filterRow.addView(small("أصلي") { applyFilter("original") })
+        filterRow.addView(small("سينمائي") { applyFilter("cinema") })
+        filterRow.addView(small("حيوي") { applyFilter("vivid") })
+        filterRow.addView(small("أبيض وأسود") { applyFilter("mono") })
+        filterPanel.addView(filterRow)
+        body.addView(filterPanel)
+        filterView = filterPanel
+        gap(body, 20)
+
+        body.addView(section("قص الصورة", "اختر أبعاداً شائعة أو ارجع إلى الإطار الأصلي"))
+        gap(body, 12)
+        val cropPanel = panel()
+        val cropRow = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
+        cropRow.addView(small("1:1") { setCrop(1f) })
+        cropRow.addView(small("4:5") { setCrop(4f / 5f) })
+        cropRow.addView(small("16:9") { setCrop(16f / 9f) })
+        cropPanel.addView(cropRow)
+        gap(cropPanel, 8)
+        cropPanel.addView(button("إلغاء القص", raised, primary) { cropRatio = null; refresh(); toast("تمت استعادة الإطار الأصلي") })
+        body.addView(cropPanel)
+        cropView = cropPanel
+        gap(body, 20)
+
+        body.addView(section("النص على الصورة", "أضف عنواناً يظهر في المعاينة والملف المحفوظ"))
+        gap(body, 12)
+        val textPanel = panel()
+        textPanel.addView(button("＋  إضافة أو تعديل النص", raised, primary) { editOverlayText() })
+        body.addView(textPanel)
+        textView = textPanel
+        gap(body, 20)
+
+        body.addView(section("التكوين", "أعد تشكيل الصورة بالطريقة التي تريدها"))
         gap(body, 12)
         val transforms = panel()
         val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         row.addView(small("تدوير 90°") { rotation = (rotation + 90f) % 360f; refresh() })
         row.addView(small("قلب أفقي") { flipH = !flipH; refresh() })
         row.addView(small("قلب رأسي") { flipV = !flipV; refresh() })
-        transforms.addView(row); body.addView(transforms)
+        transforms.addView(row)
+        gap(transforms, 8)
+        transforms.addView(button("إعادة ضبط جميع التعديلات", raised, primary) {
+            brightness = 0f
+            contrast = 1f
+            saturation = 1f
+            rotation = 0f
+            flipH = false
+            flipV = false
+            cropRatio = null
+            overlayText = ""
+            filterPreset = "original"
+            updateAdjustmentControls()
+            refresh()
+            toast("تمت إعادة الصورة إلى حالتها الأصلية")
+        })
+        body.addView(transforms)
         gap(body, 20)
 
-        body.addView(section("مساحة العمل", "أدوات التحرير المتاحة في هذه النسخة"))
+        body.addView(section("أدوات VYNTRO", "كل ما هو متاح فعلياً في مساحة التحرير"))
         gap(body, 12)
         val features = panel()
-        listOf("استيراد الصور والفيديو من الجهاز", "معاينة وتشغيل الفيديو", "ضبط الإضاءة والتباين والتشبّع", "تدوير الصورة وقلبها", "حفظ الصورة المعدّلة في المعرض").forEach {
+        listOf("استيراد الصور والفيديو من الجهاز", "معاينة وتشغيل الفيديو", "ضبط الإضاءة والتباين والتشبّع", "فلاتر أصلية وسينمائية وحيوية وأبيض وأسود", "قص الصورة بنسب متعددة", "إضافة نص وتضمينه في الحفظ", "تدوير الصورة وقلبها", "حفظ الصورة المعدّلة في المعرض").forEach {
             features.addView(txt("✦   " + it, 13, primary).apply { setPadding(0, dp(9), 0, dp(9)) })
         }
         body.addView(features)
         gap(body, 20)
         body.addView(button("حفظ الصورة المعدّلة", accent, bg) { exportImage() }, LinearLayout.LayoutParams(-1, dp(52)))
+        gap(body, 8)
+        body.addView(button("حفظ المشروع والتعديلات", raised, primary) { saveProject() }, LinearLayout.LayoutParams(-1, dp(48)))
         gap(body, 10)
         body.addView(txt("تتم معالجة الصور على جهازك دون رفعها إلى خادم.", 11, muted).apply { gravity = Gravity.CENTER })
         scroll.addView(body)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        setContentView(root)
+
+        // A real in-app launch screen: branded, animated, and removed before editing.
+        val stage = FrameLayout(this)
+        stage.addView(root, FrameLayout.LayoutParams(-1, -1))
+        val launch = FrameLayout(this).apply {
+            background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(8, 13, 31), Color.rgb(25, 28, 62), Color.rgb(8, 36, 54))
+            )
+        }
+        val center = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+        }
+        val mark = TextView(this).apply {
+            text = "V"
+            textSize = 48f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.BOLD)
+            background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(88, 115, 255), Color.rgb(65, 218, 232))
+            ).apply { cornerRadius = dp(27).toFloat() }
+            elevation = dp(18).toFloat()
+        }
+        center.addView(mark, LinearLayout.LayoutParams(dp(92), dp(92)))
+        val brandTitle = txt("VYNTRO", 34, Color.WHITE, true).apply {
+            gravity = Gravity.CENTER
+            letterSpacing = 0.16f
+        }
+        center.addView(brandTitle)
+        center.addView(txt("CREATE WITHOUT LIMITS", 10, Color.rgb(151, 222, 245), true).apply {
+            gravity = Gravity.CENTER
+            letterSpacing = 0.24f
+        })
+        val launchParams = FrameLayout.LayoutParams(-2, -2, Gravity.CENTER)
+        launchParams.bottomMargin = dp(12)
+        launch.addView(center, launchParams)
+        launch.addView(txt("YOUR VISUAL SPACE", 10, Color.rgb(133, 151, 184), true).apply {
+            gravity = Gravity.CENTER
+            letterSpacing = 0.18f
+        }, FrameLayout.LayoutParams(-1, dp(48), Gravity.BOTTOM))
+        stage.addView(launch, FrameLayout.LayoutParams(-1, -1))
+        setContentView(stage)
+        launch.alpha = 1f
+        launch.postDelayed({
+            launch.animate().alpha(0f).setDuration(420).withEndAction {
+                stage.removeView(launch)
+            }.start()
+        }, 1050)
     }
 
     private fun loadMedia(uri: Uri) {
+        currentMediaUri = uri
         val mime = contentResolver.getType(uri).orEmpty()
         videoSelected = mime.startsWith("video/")
         brightness = 0f; contrast = 1f; saturation = 1f; rotation = 0f; flipH = false; flipV = false
+        cropRatio = null; overlayText = ""; filterPreset = "original"
+        restoreProject(uri)
+        updateAdjustmentControls()
         name.text = uri.lastPathSegment?.substringAfterLast('/') ?: "ملف مستورد"
         status.text = if (videoSelected) "فيديو" else "صورة"
         if (videoSelected) {
             bitmap = null
+            selectedVideoUri = uri
+            videoDurationMs = 0L
+            videoStartMs = 0L
+            videoEndMs = 0L
+            videoTrimPanel.visibility = View.VISIBLE
+            videoStartSeek.progress = 0
+            videoEndSeek.progress = 10000
+            updateVideoTrimLabels()
             preview.visibility = View.GONE
             empty.visibility = View.GONE
             video.visibility = View.VISIBLE
             video.setVideoURI(uri)
             video.setMediaController(MediaController(this).apply { setAnchorView(video) })
-            video.setOnPreparedListener { player -> player.isLooping = true; player.start() }
+            video.setOnPreparedListener { player ->
+                videoDurationMs = player.duration.toLong().coerceAtLeast(0L)
+                val videoKey = selectedVideoUri?.let { projectStorageKey(it) }
+                val projectPrefs = getSharedPreferences("vyntro_edit_projects", MODE_PRIVATE)
+                videoStartMs = videoKey?.let { projectPrefs.getLong("${it}_video_start", 0L) }?.coerceIn(0L, videoDurationMs) ?: 0L
+                val savedEnd = videoKey?.let { projectPrefs.getLong("${it}_video_end", videoDurationMs) } ?: videoDurationMs
+                videoEndMs = savedEnd.coerceIn((videoStartMs + 500L).coerceAtMost(videoDurationMs), videoDurationMs)
+                videoStartSeek.progress = 0
+                videoEndSeek.progress = 10000
+                updateVideoTrimLabels()
+                player.isLooping = true
+                player.start()
+            }
         } else {
+            selectedVideoUri = null
+            videoTrimPanel.visibility = View.GONE
             try {
-                val loaded = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
-                if (loaded == null) { toast("تعذّر فتح هذه الصورة"); return }
+                val orientation = contentResolver.openInputStream(uri)?.use { input ->
+                    ExifInterface(input).getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_NORMAL
+                    )
+                } ?: ExifInterface.ORIENTATION_NORMAL
+                val decoded = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                if (decoded == null) { toast("تعذّر فتح هذه الصورة"); return }
+                val loaded = applyExifOrientation(decoded, orientation)
+                if (loaded !== decoded && !decoded.isRecycled) decoded.recycle()
                 bitmap = loaded
                 video.stopPlayback()
                 video.visibility = View.GONE
@@ -173,6 +415,174 @@ class MainActivity : ComponentActivity() {
                 refresh()
             } catch (_: Exception) { toast("تعذّر تحميل الصورة. جرّب ملفاً بصيغة مدعومة.") }
         }
+    }
+
+    private fun projectStorageKey(uri: Uri): String =
+        android.util.Base64.encodeToString(
+            uri.toString().toByteArray(Charsets.UTF_8),
+            android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP
+        )
+
+    private fun saveProject() {
+        val uri = currentMediaUri
+        if (uri == null) {
+            toast("استورد ملفاً أولاً لحفظ المشروع")
+            return
+        }
+        val key = projectStorageKey(uri)
+        getSharedPreferences("vyntro_edit_projects", MODE_PRIVATE).edit()
+            .putFloat("${key}_brightness", brightness)
+            .putFloat("${key}_contrast", contrast)
+            .putFloat("${key}_saturation", saturation)
+            .putFloat("${key}_rotation", rotation)
+            .putBoolean("${key}_flip_h", flipH)
+            .putBoolean("${key}_flip_v", flipV)
+            .putFloat("${key}_crop_ratio", cropRatio ?: -1f)
+            .putString("${key}_overlay_text", overlayText)
+            .putString("${key}_filter", filterPreset)
+            .putLong("${key}_video_start", videoStartMs)
+            .putLong("${key}_video_end", videoEndMs)
+            .putBoolean("${key}_saved", true)
+            .apply()
+        status.text = "تم حفظ المشروع"
+        toast("تم حفظ إعدادات المشروع على الجهاز")
+    }
+
+    private fun restoreProject(uri: Uri) {
+        val key = projectStorageKey(uri)
+        val prefs = getSharedPreferences("vyntro_edit_projects", MODE_PRIVATE)
+        if (!prefs.getBoolean("${key}_saved", false)) return
+        brightness = prefs.getFloat("${key}_brightness", 0f)
+        contrast = prefs.getFloat("${key}_contrast", 1f)
+        saturation = prefs.getFloat("${key}_saturation", 1f)
+        rotation = prefs.getFloat("${key}_rotation", 0f)
+        flipH = prefs.getBoolean("${key}_flip_h", false)
+        flipV = prefs.getBoolean("${key}_flip_v", false)
+        val savedRatio = prefs.getFloat("${key}_crop_ratio", -1f)
+        cropRatio = if (savedRatio > 0f) savedRatio else null
+        overlayText = prefs.getString("${key}_overlay_text", "").orEmpty()
+        filterPreset = prefs.getString("${key}_filter", "original") ?: "original"
+    }
+
+    private fun updateAdjustmentControls() {
+        adjustmentSeekBars["الإضاءة"]?.progress = (brightness * 100f).roundToInt() + 100
+        adjustmentSeekBars["التباين"]?.progress = (contrast * 100f).roundToInt()
+        adjustmentSeekBars["التشبّع"]?.progress = (saturation * 100f).roundToInt()
+    }
+
+    private fun updateVideoTrimLabels() {
+        if (!::videoStartLabel.isInitialized || !::videoEndLabel.isInitialized) return
+        videoStartLabel.text = "البداية: ${formatVideoTime(videoStartMs)}"
+        videoEndLabel.text = "النهاية: ${formatVideoTime(videoEndMs)}"
+    }
+
+    private fun formatVideoTime(milliseconds: Long): String {
+        val totalSeconds = (milliseconds / 1000L).coerceAtLeast(0L)
+        return String.format(Locale.US, "%02d:%02d", totalSeconds / 60L, totalSeconds % 60L)
+    }
+
+    private fun exportVideoClip() {
+        val uri = selectedVideoUri
+        if (uri == null || videoDurationMs <= 0L) {
+            toast("انتظر حتى يكتمل تحميل الفيديو")
+            return
+        }
+        if (videoEndMs <= videoStartMs + 500L) {
+            toast("حدد مدة مقطع لا تقل عن نصف ثانية")
+            return
+        }
+        val output = File(cacheDir, "vyntro_clip_${System.currentTimeMillis()}.mp4")
+        val clipping = MediaItem.ClippingConfiguration.Builder()
+            .setStartPositionMs(videoStartMs)
+            .setEndPositionMs(videoEndMs)
+            .build()
+        val mediaItem = MediaItem.Builder()
+            .setUri(uri)
+            .setClippingConfiguration(clipping)
+            .build()
+        val editedItem = EditedMediaItem.Builder(mediaItem).build()
+        status.text = "جارٍ تجهيز المقطع..."
+        val transformer = Transformer.Builder(this)
+            .addListener(object : Transformer.Listener {
+                override fun onCompleted(composition: Composition, exportResult: ExportResult) {
+                    activeTransformer = null
+                    try {
+                        publishVideoFile(output)
+                        status.text = "اكتمل تصدير الفيديو"
+                        toast("تم حفظ المقطع في Movies/VYNTRO")
+                    } catch (_: Exception) {
+                        output.delete()
+                        status.text = "تعذّر حفظ الفيديو"
+                        toast("اكتمل التحويل لكن تعذّر حفظ الملف")
+                    }
+                }
+
+                override fun onError(
+                    composition: Composition,
+                    exportResult: ExportResult,
+                    exportException: ExportException
+                ) {
+                    activeTransformer = null
+                    output.delete()
+                    status.text = "فشل تصدير الفيديو"
+                    toast("تعذّر تصدير هذا المقطع. جرّب ملف فيديو آخر.")
+                }
+            })
+            .build()
+        activeTransformer = transformer
+        try {
+            transformer.start(editedItem, output.absolutePath)
+        } catch (_: Exception) {
+            activeTransformer = null
+            output.delete()
+            status.text = "تعذّر بدء التصدير"
+            toast("لم نتمكن من بدء تصدير الفيديو")
+        }
+    }
+
+    private fun publishVideoFile(file: File) {
+        val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val values = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, "VYNTRO_$stamp.mp4")
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            if (Build.VERSION.SDK_INT >= 29) {
+                put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/VYNTRO")
+                put(MediaStore.Video.Media.IS_PENDING, 1)
+            }
+        }
+        val destination = contentResolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+            ?: throw IllegalStateException("Could not create video destination")
+        try {
+            val copied = contentResolver.openOutputStream(destination, "w")?.use { output ->
+                FileInputStream(file).use { input -> input.copyTo(output) }
+                true
+            } ?: false
+            if (!copied) throw IllegalStateException("Could not copy exported video")
+            if (Build.VERSION.SDK_INT >= 29) {
+                val publish = ContentValues().apply { put(MediaStore.Video.Media.IS_PENDING, 0) }
+                contentResolver.update(destination, publish, null, null)
+            }
+        } catch (error: Exception) {
+            contentResolver.delete(destination, null, null)
+            throw error
+        } finally {
+            file.delete()
+        }
+    }
+
+    private fun applyExifOrientation(source: Bitmap, orientation: Int): Bitmap {
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.setScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> { matrix.setRotate(90f); matrix.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> { matrix.setRotate(-90f); matrix.postScale(-1f, 1f) }
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+            else -> return source
+        }
+        return Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
     }
 
     private fun colorMatrix(): ColorMatrix {
@@ -184,50 +594,205 @@ class MainActivity : ComponentActivity() {
             0f, 0f, 0f, 1f, 0f
         ))
         matrix.postConcat(ColorMatrix().apply { setSaturation(saturation) })
+        val preset = when (filterPreset) {
+            "cinema" -> ColorMatrix(floatArrayOf(
+                1.10f, 0f, 0f, 0f, -5f,
+                0f, 1.06f, 0f, 0f, -3f,
+                0f, 0f, 0.94f, 0f, 2f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            "vivid" -> ColorMatrix(floatArrayOf(
+                1.12f, 0f, 0f, 0f, 0f,
+                0f, 1.10f, 0f, 0f, 0f,
+                0f, 0f, 1.12f, 0f, 0f,
+                0f, 0f, 0f, 1f, 0f
+            ))
+            "mono" -> ColorMatrix().apply { setSaturation(0f) }
+            else -> null
+        }
+        if (preset != null) matrix.postConcat(preset)
         return matrix
     }
 
-    private fun transformMatrix(): Matrix = Matrix().apply {
-        postRotate(rotation)
-        postScale(if (flipH) -1f else 1f, if (flipV) -1f else 1f)
+    private fun transformMatrix(width: Int, height: Int): Matrix {
+        val matrix = Matrix()
+        matrix.postRotate(rotation)
+        matrix.postScale(if (flipH) -1f else 1f, if (flipV) -1f else 1f)
+        val bounds = RectF(0f, 0f, width.toFloat(), height.toFloat())
+        matrix.mapRect(bounds)
+        matrix.postTranslate(-bounds.left, -bounds.top)
+        return matrix
+    }
+
+    /**
+     * Creates the exact bitmap used by both preview and export. The transformed
+     * bounds are normalized so rotations never crop the corners.
+     */
+    private fun cropSource(source: Bitmap): Bitmap {
+        val ratio = cropRatio ?: return source
+        val sourceRatio = source.width.toFloat() / source.height.toFloat()
+        val width: Int
+        val height: Int
+        if (sourceRatio > ratio) {
+            height = source.height
+            width = (height * ratio).roundToInt().coerceIn(1, source.width)
+        } else {
+            width = source.width
+            height = (width / ratio).roundToInt().coerceIn(1, source.height)
+        }
+        val left = (source.width - width) / 2
+        val top = (source.height - height) / 2
+        return Bitmap.createBitmap(source, left, top, width, height)
+    }
+
+    private fun renderEditedBitmap(source: Bitmap): Bitmap {
+        val cropped = cropSource(source)
+        try {
+            val matrix = transformMatrix(cropped.width, cropped.height)
+            val bounds = RectF(0f, 0f, cropped.width.toFloat(), cropped.height.toFloat())
+            matrix.mapRect(bounds)
+            val outWidth = bounds.width().roundToInt().coerceAtLeast(1)
+            val outHeight = bounds.height().roundToInt().coerceAtLeast(1)
+            val output = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(output)
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
+                colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix())
+            }
+            canvas.drawBitmap(cropped, matrix, paint)
+            if (overlayText.isNotBlank()) {
+                val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.WHITE
+                    textSize = (outWidth * 0.065f).coerceIn(22f, 96f)
+                    typeface = Typeface.create("sans-serif-bold", Typeface.BOLD)
+                    textAlign = Paint.Align.RIGHT
+                    setShadowLayer(5f, 0f, 2f, Color.BLACK)
+                }
+                val x = outWidth - outWidth * 0.06f
+                val y = outHeight - outHeight * 0.08f
+                val textWidth = textPaint.measureText(overlayText)
+                val box = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(145, 5, 10, 22) }
+                canvas.drawRoundRect(
+                    x - textWidth - outWidth * 0.035f, y - textPaint.textSize * 1.25f,
+                    x + outWidth * 0.025f, y + textPaint.textSize * 0.35f,
+                    16f, 16f, box
+                )
+                canvas.drawText(overlayText, x, y, textPaint)
+            }
+            return output
+        } finally {
+            if (cropped !== source && !cropped.isRecycled) cropped.recycle()
+        }
+    }
+
+    private fun applyFilter(name: String) {
+        if (bitmap == null || videoSelected) {
+            toast("استورد صورة أولاً لتجربة الفلاتر")
+            return
+        }
+        filterPreset = name
+        refresh()
+    }
+
+    private fun setCrop(ratio: Float) {
+        if (bitmap == null || videoSelected) {
+            toast("استورد صورة أولاً لاستخدام القص")
+            return
+        }
+        cropRatio = ratio
+        refresh()
+    }
+
+    private fun editOverlayText() {
+        if (bitmap == null || videoSelected) {
+            toast("استورد صورة أولاً لإضافة النص")
+            return
+        }
+        val field = EditText(this).apply {
+            setSingleLine(true)
+            hint = "اكتب النص هنا"
+            setText(overlayText)
+            setSelection(text?.length ?: 0)
+        }
+        android.app.AlertDialog.Builder(this)
+            .setTitle("النص على الصورة")
+            .setView(field)
+            .setPositiveButton("تطبيق") { _, _ ->
+                overlayText = field.text.toString().trim().take(80)
+                refresh()
+            }
+            .setNeutralButton("إزالة النص") { _, _ -> overlayText = ""; refresh() }
+            .setNegativeButton("إلغاء", null)
+            .show()
+    }
+
+    private fun jumpTo(target: View?) {
+        if (target == null) return
+        val scroll = target.parent
+        var top = target.top
+        var parent = target.parent
+        while (parent is View && parent !is ScrollView) {
+            top += parent.top
+            parent = parent.parent
+        }
+        (parent as? ScrollView)?.smoothScrollTo(0, top)
     }
 
     private fun refresh() {
         val source = bitmap ?: return
-        preview.colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix())
-        preview.imageMatrix = transformMatrix()
-        preview.scaleType = ImageView.ScaleType.MATRIX
-        preview.setImageBitmap(source)
+        try {
+            val rendered = renderEditedBitmap(source)
+            val previous = preview.drawable
+            preview.setImageBitmap(rendered)
+            if (previous is android.graphics.drawable.BitmapDrawable) {
+                val oldBitmap = previous.bitmap
+                if (oldBitmap !== source && oldBitmap !== rendered && !oldBitmap.isRecycled) oldBitmap.recycle()
+            }
+            preview.scaleType = ImageView.ScaleType.FIT_CENTER
+        } catch (_: OutOfMemoryError) {
+            toast("الصورة كبيرة جداً للمعاينة على ذاكرة الجهاز")
+        } catch (_: Exception) {
+            toast("تعذّرت معاينة التعديلات")
+        }
     }
 
     private fun exportImage() {
         val source = bitmap
-        if (source == null || videoSelected) { toast("استورد صورة أولاً لحفظ النسخة المعدّلة"); return }
-        var transformed: Bitmap? = null
+        if (source == null || videoSelected) {
+            toast("استورد صورة أولاً لحفظ النسخة المعدّلة")
+            return
+        }
         var output: Bitmap? = null
+        var target: Uri? = null
         try {
-            transformed = Bitmap.createBitmap(source, 0, 0, source.width, source.height, transformMatrix(), true)
-            output = Bitmap.createBitmap(transformed.width, transformed.height, Bitmap.Config.ARGB_8888)
-            val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { colorFilter = android.graphics.ColorMatrixColorFilter(colorMatrix()) }
-            Canvas(output).drawBitmap(transformed, 0f, 0f, paint)
+            output = renderEditedBitmap(source)
             val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, "Lamah_" + stamp + ".jpg")
+                put(MediaStore.Images.Media.DISPLAY_NAME, "VYNTRO_" + stamp + ".jpg")
                 put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
-                if (Build.VERSION.SDK_INT >= 29) put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Lamah")
+                if (Build.VERSION.SDK_INT >= 29) {
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/VYNTRO")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
             }
-            val target = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                ?: throw IllegalStateException("MediaStore insert failed")
-            val saved = contentResolver.openOutputStream(target)?.use {
-                output.compress(Bitmap.CompressFormat.JPEG, 95, it)
+            target = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("تعذّر إنشاء ملف الصورة")
+            val saved = contentResolver.openOutputStream(target!!, "w")?.use { stream ->
+                output.compress(Bitmap.CompressFormat.JPEG, 95, stream)
             } ?: false
-            if (!saved) throw IllegalStateException("Image encoding failed")
-            toast("تم حفظ الصورة في Pictures/Lamah")
+            if (!saved) throw IllegalStateException("تعذّر ترميز الصورة")
+            if (Build.VERSION.SDK_INT >= 29) {
+                val publish = ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }
+                contentResolver.update(target!!, publish, null, null)
+            }
+            toast("تم حفظ الصورة في Pictures/VYNTRO")
+        } catch (_: OutOfMemoryError) {
+            target?.let { contentResolver.delete(it, null, null) }
+            toast("الصورة أكبر من الذاكرة المتاحة. جرّب صورة أصغر.")
         } catch (_: Exception) {
+            target?.let { contentResolver.delete(it, null, null) }
             toast("تعذّر حفظ الصورة. حاول مجدداً.")
         } finally {
             output?.recycle()
-            if (transformed != null && transformed !== source) transformed.recycle()
         }
     }
 
@@ -252,6 +817,7 @@ class MainActivity : ComponentActivity() {
                 override fun onStopTrackingTouch(bar: SeekBar?) = Unit
             })
         }
+        adjustmentSeekBars[title] = seek
         block.addView(seek); parent.addView(block); gap(parent, 8)
     }
 
