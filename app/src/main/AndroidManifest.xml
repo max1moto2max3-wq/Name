@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
         android:allowBackup="true"
-        android:label="لَمْعَة"
+        android:label="VYNTRO"
         android:icon="@android:drawable/ic_menu_gallery"
         android:roundIcon="@android:drawable/ic_menu_gallery"
         android:supportsRtl="true"
