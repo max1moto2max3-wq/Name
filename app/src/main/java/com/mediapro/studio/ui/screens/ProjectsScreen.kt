@@ -1,4 +1,5 @@
 package com.mediapro.studio.ui.screens
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,8 +13,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.mediapro.studio.domain.model.MediaProject
+
 @Composable
-fun ProjectsScreen(projects: List<MediaProject>) {
+fun ProjectsScreen(projects: List<MediaProject>, onProjectClick: (MediaProject) -> Unit) {
     if (projects.isEmpty()) {
         Column(Modifier.fillMaxSize().padding(24.dp), verticalArrangement = Arrangement.Center) {
             Text("مشاريعك", style = MaterialTheme.typography.headlineMedium)
@@ -23,7 +25,7 @@ fun ProjectsScreen(projects: List<MediaProject>) {
         LazyColumn(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { Text("مشاريعك", style = MaterialTheme.typography.headlineMedium) }
             items(projects, key = { it.id }) { project ->
-                Card {
+                Card(onClick = { onProjectClick(project) }) {
                     Column(Modifier.padding(16.dp)) {
                         Text(project.displayName, style = MaterialTheme.typography.titleMedium)
                         Text(if (project.kind.name == "VIDEO") "مشروع فيديو" else "مشروع صورة",
