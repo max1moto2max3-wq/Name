@@ -20,7 +20,6 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -58,14 +57,8 @@ fun VideoEditorScreen(videoUri: Uri, onBack: () -> Unit) {
     var exporting by remember { mutableStateOf(false) }
     val minimumClipMs = duration.coerceAtMost(500f).coerceAtLeast(1f)
 
-    val player = remember(videoUri) {
-        ExoPlayer.Builder(context).build().apply {
-            setMediaItem(MediaItem.fromUri(videoUri))
-            prepare()
-            playWhenReady = false
-        }
-    }
-    DisposableEffect(player) {
+    val player = remember(videoUri) { ExoPlayer.Builder(context).build() }
+    DisposableEffect(player, videoUri) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY && player.duration > 0) {
@@ -79,6 +72,9 @@ fun VideoEditorScreen(videoUri: Uri, onBack: () -> Unit) {
             }
         }
         player.addListener(listener)
+        player.setMediaItem(MediaItem.fromUri(videoUri))
+        player.prepare()
+        player.playWhenReady = false
         onDispose {
             player.removeListener(listener)
             player.release()
