@@ -26,6 +26,7 @@ import com.mediapro.studio.ui.screens.HomeScreen
 import com.mediapro.studio.ui.screens.ImageEditorScreen
 import com.mediapro.studio.ui.screens.ProjectsScreen
 import com.mediapro.studio.ui.screens.SettingsScreen
+import com.mediapro.studio.ui.screens.VideoEditorScreen
 import com.mediapro.studio.ui.viewmodel.HomeViewModel
 
 private data class Destination(val route: String, val label: String)
@@ -41,7 +42,7 @@ fun MediaProApp(viewModel: HomeViewModel = hiltViewModel()) {
     )
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
-    val showBottomBar = currentRoute != "image-editor/{uri}"
+    val showBottomBar = currentRoute != "image-editor/{uri}" && currentRoute != "video-editor/{uri}"
 
     Scaffold(bottomBar = {
         if (showBottomBar) NavigationBar {
@@ -70,16 +71,14 @@ fun MediaProApp(viewModel: HomeViewModel = hiltViewModel()) {
             composable("home") {
                 HomeScreen(projects) { uri, mime, name ->
                     viewModel.addMedia(uri, mime, name)
-                    if (mime?.startsWith("image/") == true) {
-                        navController.navigate("image-editor/${Uri.encode(uri.toString())}")
-                    }
+                    val route = if (mime?.startsWith("video/") == true) "video-editor" else "image-editor"
+                    navController.navigate("$route/${Uri.encode(uri.toString())}")
                 }
             }
             composable("projects") {
                 ProjectsScreen(projects) { project ->
-                    if (project.kind == MediaKind.IMAGE) {
-                        navController.navigate("image-editor/${Uri.encode(project.uri)}")
-                    }
+                    val route = if (project.kind == MediaKind.VIDEO) "video-editor" else "image-editor"
+                    navController.navigate("$route/${Uri.encode(project.uri)}")
                 }
             }
             composable(
@@ -88,6 +87,13 @@ fun MediaProApp(viewModel: HomeViewModel = hiltViewModel()) {
             ) { entry ->
                 val uri = Uri.parse(entry.arguments?.getString("uri").orEmpty())
                 ImageEditorScreen(uri) { navController.popBackStack() }
+            }
+            composable(
+                route = "video-editor/{uri}",
+                arguments = listOf(navArgument("uri") { type = NavType.StringType })
+            ) { entry ->
+                val uri = Uri.parse(entry.arguments?.getString("uri").orEmpty())
+                VideoEditorScreen(uri) { navController.popBackStack() }
             }
             composable("settings") { SettingsScreen() }
         }
