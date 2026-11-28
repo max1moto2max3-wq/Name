@@ -21,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +43,7 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
 import com.mediapro.studio.domain.model.VideoTrimRange
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -54,11 +56,19 @@ fun VideoEditorScreen(videoUri: Uri, onBack: () -> Unit) {
     var duration by remember { mutableFloatStateOf(0f) }
     var start by remember { mutableFloatStateOf(0f) }
     var end by remember { mutableFloatStateOf(0f) }
+    var position by remember { mutableFloatStateOf(0f) }
     var status by remember { mutableStateOf("جارٍ تجهيز معاينة الفيديو") }
     var exporting by remember { mutableStateOf(false) }
     val minimumClipMs = duration.coerceAtMost(500f).coerceAtLeast(1f)
 
     val player = remember(videoUri) { ExoPlayer.Builder(context).build() }
+    LaunchedEffect(player) {
+        while (true) {
+            position = player.currentPosition.toFloat().coerceAtLeast(0f)
+            delay(200)
+        }
+    }
+
     DisposableEffect(player, videoUri) {
         val listener = object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
@@ -99,6 +109,16 @@ fun VideoEditorScreen(videoUri: Uri, onBack: () -> Unit) {
             },
             update = { it.player = player },
             modifier = Modifier.fillMaxWidth().height(240.dp)
+        )
+        Text("موضع التشغيل: ${formatTime(position.toLong())} / ${formatTime(duration.toLong())}")
+        Slider(
+            value = position.coerceIn(0f, duration.coerceAtLeast(1f)),
+            onValueChange = {
+                position = it
+                player.seekTo(it.toLong())
+            },
+            valueRange = 0f..duration.coerceAtLeast(1f),
+            enabled = duration > 0f
         )
         Text("بداية المقطع: ${formatTime(start.toLong())}")
         Slider(
