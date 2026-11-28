@@ -13,6 +13,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -59,6 +60,7 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
     var contrast by remember { mutableFloatStateOf(1f) }
     var saturation by remember { mutableFloatStateOf(1f) }
     var rotation by remember { mutableFloatStateOf(0f) }
+    var squareCrop by remember { mutableStateOf(false) }
     var overlayText by remember { mutableStateOf("") }
     var exporting by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -85,14 +87,15 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
             Text("محرر الصور", style = MaterialTheme.typography.titleLarge)
         }
         Box(
-            Modifier.fillMaxWidth().height(320.dp).background(MaterialTheme.colorScheme.surfaceVariant),
+            Modifier.fillMaxWidth().then(if (squareCrop) Modifier.aspectRatio(1f) else Modifier.height(320.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
             AsyncImage(
                 model = imageUri,
                 contentDescription = "معاينة الصورة",
                 modifier = Modifier.fillMaxSize().graphicsLayer(rotationZ = rotation),
-                contentScale = ContentScale.Fit,
+                contentScale = if (squareCrop) ContentScale.Crop else ContentScale.Fit,
                 colorFilter = previewFilter
             )
             if (overlayText.isNotBlank()) {
@@ -105,6 +108,9 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick = { squareCrop = !squareCrop }, modifier = Modifier.weight(1f)) {
+                Text(if (squareCrop) "إلغاء القص المربع" else "قص مربع مركزي")
+            }
             OutlinedButton(onClick = { rotation = (rotation - 90f + 360f) % 360f }, modifier = Modifier.weight(1f)) {
                 Text("تدوير لليسار")
             }
@@ -124,7 +130,7 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
         AdjustmentControl("التشبّع", saturation, 0f, 2f) { saturation = it }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(
-                onClick = { brightness = 0f; contrast = 1f; saturation = 1f; rotation = 0f; overlayText = ""; message = null },
+                onClick = { brightness = 0f; contrast = 1f; saturation = 1f; rotation = 0f; squareCrop = false; overlayText = ""; message = null },
                 modifier = Modifier.weight(1f)
             ) { Text("إعادة الضبط") }
             Button(
@@ -133,7 +139,7 @@ fun ImageEditorScreen(imageUri: Uri, onBack: () -> Unit) {
                     message = null
                     scope.launch {
                         val result = withContext(Dispatchers.IO) {
-                            exportAdjustedImage(context, imageUri, matrix, rotation, overlayText)
+                            exportAdjustedImage(context, imageUri, matrix, rotation, squareCrop, overlayText)
                         }
                         exporting = false
                         message = result
@@ -178,13 +184,19 @@ private fun exportAdjustedImage(
     source: Uri,
     matrixValues: FloatArray,
     rotation: Float,
+    squareCrop: Boolean,
     overlayText: String
 ): String {
     val original = context.contentResolver.openInputStream(source)?.use { BitmapFactory.decodeStream(it) }
         ?: return "تعذّر فتح الصورة."
     val output = try {
+        val sourceBitmap = if (squareCrop) {
+            val side = minOf(original.width, original.height)
+            Bitmap.createBitmap(original, (original.width - side) / 2, (original.height - side) / 2, side, side)
+        } else original
         val transform = Matrix().apply { postRotate(rotation) }
-        val rotated = Bitmap.createBitmap(original, 0, 0, original.width, original.height, transform, true)
+        val rotated = Bitmap.createBitmap(sourceBitmap, 0, 0, sourceBitmap.width, sourceBitmap.height, transform, true)
+        if (sourceBitmap !== original) sourceBitmap.recycle()
         val bitmap = Bitmap.createBitmap(rotated.width, rotated.height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
