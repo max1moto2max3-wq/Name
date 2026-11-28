@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.exifinterface.media.ExifInterface
 import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -190,7 +191,7 @@ private fun exportAdjustedImage(
     squareCrop: Boolean,
     overlayText: String
 ): String {
-    val original = context.contentResolver.openInputStream(source)?.use { BitmapFactory.decodeStream(it) }
+    val original = decodeOrientedBitmap(context, source)
         ?: return "تعذّر فتح الصورة."
     val output = try {
         val sourceBitmap = if (squareCrop) {
@@ -247,5 +248,44 @@ private fun exportAdjustedImage(
         resolver.delete(destination, null, null)
         output.recycle()
         "فشل التصدير: ${error.localizedMessage ?: "خطأ غير معروف"}"
+    }
+}
+
+
+private fun decodeOrientedBitmap(context: android.content.Context, source: Uri): Bitmap? {
+    val resolver = context.contentResolver
+    val bitmap = resolver.openInputStream(source)?.use { BitmapFactory.decodeStream(it) } ?: return null
+    val orientation = runCatching {
+        resolver.openInputStream(source)?.use { stream ->
+            ExifInterface(stream).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL
+            )
+        } ?: ExifInterface.ORIENTATION_NORMAL
+    }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+
+    val transform = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> transform.setScale(-1f, 1f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> transform.setRotate(180f)
+        ExifInterface.ORIENTATION_FLIP_VERTICAL -> transform.setScale(1f, -1f)
+        ExifInterface.ORIENTATION_TRANSPOSE -> {
+            transform.setRotate(90f)
+            transform.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_ROTATE_90 -> transform.setRotate(90f)
+        ExifInterface.ORIENTATION_TRANSVERSE -> {
+            transform.setRotate(270f)
+            transform.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_ROTATE_270 -> transform.setRotate(270f)
+        else -> return bitmap
+    }
+    return try {
+        Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, transform, true).also {
+            if (it !== bitmap) bitmap.recycle()
+        }
+    } catch (_: Exception) {
+        bitmap
     }
 }
