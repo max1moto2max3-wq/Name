@@ -1,6 +1,5 @@
 package com.mediapro.studio.ui.screens
 import android.net.Uri
-import android.database.Cursor
 import android.provider.OpenableColumns
 import android.webkit.MimeTypeMap
 import android.widget.Toast
