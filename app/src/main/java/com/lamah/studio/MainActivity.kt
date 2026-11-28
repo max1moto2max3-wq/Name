@@ -18,12 +18,12 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
-    private val bg = Color.rgb(12, 14, 19)
-    private val panelColor = Color.rgb(23, 26, 34)
-    private val raised = Color.rgb(34, 37, 48)
-    private val accent = Color.rgb(176, 145, 255)
-    private val primary = Color.rgb(246, 244, 251)
-    private val muted = Color.rgb(157, 162, 177)
+    private val bg = Color.rgb(8, 10, 19)
+    private val panelColor = Color.rgb(19, 23, 38)
+    private val raised = Color.rgb(31, 38, 59)
+    private val accent = Color.rgb(116, 224, 255)
+    private val primary = Color.rgb(244, 248, 255)
+    private val muted = Color.rgb(151, 166, 190)
     private lateinit var preview: ImageView
     private lateinit var video: VideoView
     private lateinit var empty: LinearLayout
@@ -67,16 +67,16 @@ class MainActivity : ComponentActivity() {
 
         val header = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
         val brand = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(0, -2, 1f) }
-        brand.addView(txt("لَمْعَة", 27, primary, true))
-        brand.addView(txt("استوديو إبداعي للصور والفيديو", 12, muted))
+        brand.addView(txt("VYNTRO", 27, primary, true))
+        brand.addView(txt("استوديو بصري يصنع الفرق", 12, muted))
         header.addView(brand)
-        header.addView(txt("مشروع محلي  •  01", 11, accent, true).apply {
+        header.addView(txt("CREATIVE STUDIO  •  01", 10, accent, true).apply {
             setPadding(dp(12), dp(9), dp(12), dp(9)); background = shape(raised, 18)
         })
         body.addView(header)
         gap(body, 24)
-        body.addView(txt("حوّل لحظاتك إلى قصة", 23, primary, true))
-        body.addView(txt("كل أدواتك الإبداعية في مساحة واحدة", 13, muted))
+        body.addView(txt("رؤيتك. بأسلوبك.", 25, primary, true))
+        body.addView(txt("اصنع صوراً تستحق أن تُروى", 13, muted))
         gap(body, 18)
 
         val card = LinearLayout(this).apply {
@@ -107,12 +107,12 @@ class MainActivity : ComponentActivity() {
         meta.addView(name); meta.addView(status); card.addView(meta)
         body.addView(card)
         gap(body, 14)
-        body.addView(button("＋  استيراد الصور والفيديو", accent, bg) {
+        body.addView(button("＋  أضف صورة أو فيديو", accent, bg) {
             picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo))
         }, LinearLayout.LayoutParams(-1, dp(52)))
         gap(body, 24)
 
-        body.addView(section("أدوات الضبط", "تحكم دقيق بمظهر الصورة"))
+        body.addView(section("ضبط الصورة", "تحكم في الضوء والعمق والألوان"))
         gap(body, 12)
         val adjustments = panel()
         slider(adjustments, "الإضاءة", -100, 100, 0) { brightness = it / 100f; refresh() }
@@ -121,7 +121,7 @@ class MainActivity : ComponentActivity() {
         body.addView(adjustments)
         gap(body, 20)
 
-        body.addView(section("التحويل والتكوين", "رتّب الكادر بالطريقة التي تريدها"))
+        body.addView(section("التكوين", "أعد تشكيل الصورة بالطريقة التي تريدها"))
         gap(body, 12)
         val transforms = panel()
         val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL }
@@ -131,7 +131,7 @@ class MainActivity : ComponentActivity() {
         transforms.addView(row); body.addView(transforms)
         gap(body, 20)
 
-        body.addView(section("مساحة العمل", "أدوات التحرير المتاحة في هذه النسخة"))
+        body.addView(section("أدوات VYNTRO", "كل ما هو متاح فعلياً في مساحة التحرير"))
         gap(body, 12)
         val features = panel()
         listOf("استيراد الصور والفيديو من الجهاز", "معاينة وتشغيل الفيديو", "ضبط الإضاءة والتباين والتشبّع", "تدوير الصورة وقلبها", "حفظ الصورة المعدّلة في المعرض").forEach {
@@ -144,7 +144,57 @@ class MainActivity : ComponentActivity() {
         body.addView(txt("تتم معالجة الصور على جهازك دون رفعها إلى خادم.", 11, muted).apply { gravity = Gravity.CENTER })
         scroll.addView(body)
         root.addView(scroll, LinearLayout.LayoutParams(-1, 0, 1f))
-        setContentView(root)
+
+        // A real in-app launch screen: branded, animated, and removed before editing.
+        val stage = FrameLayout(this)
+        stage.addView(root, FrameLayout.LayoutParams(-1, -1))
+        val launch = FrameLayout(this).apply {
+            background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(8, 13, 31), Color.rgb(25, 28, 62), Color.rgb(8, 36, 54))
+            )
+        }
+        val center = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+        }
+        val mark = TextView(this).apply {
+            text = "V"
+            textSize = 48f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            typeface = android.graphics.Typeface.create("sans-serif-black", android.graphics.Typeface.BOLD)
+            background = android.graphics.drawable.GradientDrawable(
+                android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                intArrayOf(Color.rgb(88, 115, 255), Color.rgb(65, 218, 232))
+            ).apply { cornerRadius = dp(27).toFloat() }
+            elevation = dp(18).toFloat()
+        }
+        center.addView(mark, LinearLayout.LayoutParams(dp(92), dp(92)))
+        val brandTitle = txt("VYNTRO", 34, Color.WHITE, true).apply {
+            gravity = Gravity.CENTER
+            letterSpacing = 0.16f
+        }
+        center.addView(brandTitle)
+        center.addView(txt("CREATE WITHOUT LIMITS", 10, Color.rgb(151, 222, 245), true).apply {
+            gravity = Gravity.CENTER
+            letterSpacing = 0.24f
+        })
+        val launchParams = FrameLayout.LayoutParams(-2, -2, Gravity.CENTER)
+        launchParams.bottomMargin = dp(12)
+        launch.addView(center, launchParams)
+        launch.addView(txt("YOUR VISUAL SPACE", 10, Color.rgb(133, 151, 184), true).apply {
+            gravity = Gravity.CENTER
+            letterSpacing = 0.18f
+        }, FrameLayout.LayoutParams(-1, dp(48), Gravity.BOTTOM))
+        stage.addView(launch, FrameLayout.LayoutParams(-1, -1))
+        setContentView(stage)
+        launch.alpha = 1f
+        launch.postDelayed({
+            launch.animate().alpha(0f).setDuration(420).withEndAction {
+                stage.removeView(launch)
+            }.start()
+        }, 1050)
     }
 
     private fun loadMedia(uri: Uri) {
@@ -245,10 +295,10 @@ class MainActivity : ComponentActivity() {
             output = renderEditedBitmap(source)
             val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
             val values = ContentValues().apply {
-                put(MediaStore.Images.Media.DISPLAY_NAME, "Lamah_" + stamp + ".jpg")
+                put(MediaStore.Images.Media.DISPLAY_NAME, "VYNTRO_" + stamp + ".jpg")
                 put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
                 if (Build.VERSION.SDK_INT >= 29) {
-                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/Lamah")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/VYNTRO")
                     put(MediaStore.Images.Media.IS_PENDING, 1)
                 }
             }
@@ -262,7 +312,7 @@ class MainActivity : ComponentActivity() {
                 val publish = ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }
                 contentResolver.update(target!!, publish, null, null)
             }
-            toast("تم حفظ الصورة المعدّلة في Pictures/Lamah")
+            toast("تم حفظ الصورة في Pictures/VYNTRO")
         } catch (_: OutOfMemoryError) {
             target?.let { contentResolver.delete(it, null, null) }
             toast("الصورة أكبر من الذاكرة المتاحة. جرّب صورة أصغر.")
