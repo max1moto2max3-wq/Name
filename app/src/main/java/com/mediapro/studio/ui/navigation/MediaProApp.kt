@@ -3,6 +3,7 @@ package com.mediapro.studio.ui.navigation
 import android.net.Uri
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesomeMosaic
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -26,6 +27,7 @@ import com.mediapro.studio.ui.screens.HomeScreen
 import com.mediapro.studio.ui.screens.ImageEditorScreen
 import com.mediapro.studio.ui.screens.ProjectsScreen
 import com.mediapro.studio.ui.screens.SettingsScreen
+import com.mediapro.studio.ui.screens.ToolsScreen
 import com.mediapro.studio.ui.screens.VideoEditorScreen
 import com.mediapro.studio.ui.viewmodel.HomeViewModel
 
@@ -37,6 +39,7 @@ fun MediaProApp(viewModel: HomeViewModel = hiltViewModel()) {
     val projects by viewModel.projects.collectAsStateWithLifecycle()
     val destinations = listOf(
         Destination("home", "الرئيسية"),
+        Destination("tools", "الأدوات"),
         Destination("projects", "المشاريع"),
         Destination("settings", "الإعدادات")
     )
@@ -48,6 +51,7 @@ fun MediaProApp(viewModel: HomeViewModel = hiltViewModel()) {
         if (showBottomBar) NavigationBar {
             destinations.forEach { destination ->
                 val icon = when (destination.route) {
+                    "tools" -> Icons.Filled.AutoAwesomeMosaic
                     "projects" -> Icons.Filled.VideoLibrary
                     "settings" -> Icons.Filled.Settings
                     else -> Icons.Filled.Home
@@ -74,6 +78,12 @@ fun MediaProApp(viewModel: HomeViewModel = hiltViewModel()) {
                     val route = if (mime?.startsWith("video/") == true) "video-editor" else "image-editor"
                     navController.navigate("$route/${Uri.encode(uri.toString())}")
                 }
+            }
+            composable("tools") {
+                ToolsScreen(
+                    onPickImage = { navController.navigate("home") },
+                    onPickVideo = { navController.navigate("home") }
+                )
             }
             composable("projects") {
                 ProjectsScreen(
