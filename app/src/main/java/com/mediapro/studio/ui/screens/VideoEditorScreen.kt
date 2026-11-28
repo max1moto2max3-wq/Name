@@ -40,6 +40,7 @@ import androidx.media3.transformer.EditedMediaItem
 import androidx.media3.transformer.ExportException
 import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
+import com.mediapro.studio.domain.model.VideoTrimRange
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -119,12 +120,13 @@ fun VideoEditorScreen(videoUri: Uri, onBack: () -> Unit) {
             ) { Text("معاينة من البداية") }
             Button(
                 onClick = {
-                    if (duration <= 0f || end <= start || end > duration) {
-                        status = "انتظر تحميل الفيديو وحدد نطاقاً صالحاً."
+                    val range = VideoTrimRange(start.toLong(), end.toLong(), duration.toLong())
+                    if (!range.isValid) {
+                        status = "انتظر تحميل الفيديو وحدد نطاقاً صالحاً داخل مدة الملف."
                     } else {
                         exporting = true
                         status = "جارٍ تصدير المقطع..."
-                        exportTrimmedVideo(context, videoUri, start.toLong(), end.toLong(), scope) { result ->
+                        exportTrimmedVideo(context, videoUri, range.startMs, range.endMs, scope) { result ->
                             exporting = false
                             status = result
                         }
