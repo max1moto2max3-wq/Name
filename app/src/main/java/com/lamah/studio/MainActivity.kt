@@ -187,7 +187,22 @@ class MainActivity : ComponentActivity() {
         row.addView(small("تدوير 90°") { rotation = (rotation + 90f) % 360f; refresh() })
         row.addView(small("قلب أفقي") { flipH = !flipH; refresh() })
         row.addView(small("قلب رأسي") { flipV = !flipV; refresh() })
-        transforms.addView(row); body.addView(transforms)
+        transforms.addView(row)
+        gap(transforms, 8)
+        transforms.addView(button("إعادة ضبط جميع التعديلات", raised, primary) {
+            brightness = 0f
+            contrast = 1f
+            saturation = 1f
+            rotation = 0f
+            flipH = false
+            flipV = false
+            cropRatio = null
+            overlayText = ""
+            filterPreset = "original"
+            refresh()
+            toast("تمت إعادة الصورة إلى حالتها الأصلية")
+        })
+        body.addView(transforms)
         gap(body, 20)
 
         body.addView(section("أدوات VYNTRO", "كل ما هو متاح فعلياً في مساحة التحرير"))
