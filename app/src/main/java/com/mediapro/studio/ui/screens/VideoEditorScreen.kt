@@ -56,6 +56,7 @@ fun VideoEditorScreen(videoUri: Uri, onBack: () -> Unit) {
     var end by remember { mutableFloatStateOf(0f) }
     var status by remember { mutableStateOf("جارٍ تجهيز معاينة الفيديو") }
     var exporting by remember { mutableStateOf(false) }
+    val minimumClipMs = duration.coerceAtMost(500f).coerceAtLeast(1f)
 
     val player = remember(videoUri) {
         ExoPlayer.Builder(context).build().apply {
@@ -105,13 +106,13 @@ fun VideoEditorScreen(videoUri: Uri, onBack: () -> Unit) {
         Text("بداية المقطع: ${formatTime(start.toLong())}")
         Slider(
             value = start,
-            onValueChange = { start = it.coerceIn(0f, (end - 500f).coerceAtLeast(0f)) },
+            onValueChange = { start = it.coerceIn(0f, (end - minimumClipMs).coerceAtLeast(0f)) },
             valueRange = 0f..(duration.coerceAtLeast(1f))
         )
         Text("نهاية المقطع: ${formatTime(end.toLong())}")
         Slider(
             value = end.coerceIn(0f, duration.coerceAtLeast(1f)),
-            onValueChange = { end = it.coerceIn(start + 500f, duration.coerceAtLeast(start + 500f)) },
+            onValueChange = { end = it.coerceIn((start + minimumClipMs).coerceAtMost(duration), duration.coerceAtLeast(1f)) },
             valueRange = 0f..(duration.coerceAtLeast(1f))
         )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -122,7 +123,7 @@ fun VideoEditorScreen(videoUri: Uri, onBack: () -> Unit) {
             ) { Text("معاينة من البداية") }
             Button(
                 onClick = {
-                    if (duration <= 0f || end <= start) {
+                    if (duration <= 0f || end <= start || end > duration) {
                         status = "انتظر تحميل الفيديو وحدد نطاقاً صالحاً."
                     } else {
                         exporting = true
@@ -171,7 +172,7 @@ private fun exportTrimmedVideo(
     val transformer = Transformer.Builder(context).addListener(object : Transformer.Listener {
         override fun onCompleted(composition: Composition, exportResult: ExportResult) {
             scope.launch {
-                val result = withContext(Dispatchers.IO) { publishVideo(context, temp, endMs - startMs) }
+                val result = withContext(Dispatchers.IO) { publishVideo(context, temp) }
                 onFinished(result)
             }
         }
@@ -192,7 +193,7 @@ private fun exportTrimmedVideo(
     }
 }
 
-private fun publishVideo(context: Context, source: File, durationMs: Long): String {
+private fun publishVideo(context: Context, source: File): String {
     if (!source.exists() || source.length() == 0L) return "ملف التصدير غير موجود."
     val resolver = context.contentResolver
     val metadata = ContentValues().apply {
@@ -202,7 +203,7 @@ private fun publishVideo(context: Context, source: File, durationMs: Long): Stri
         put(MediaStore.Video.Media.IS_PENDING, 1)
     }
     val destination = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, metadata)
-        ?: return "تعذّر إنشاء ملف الفيديو."
+        ?: run { source.delete(); return "تعذّر إنشاء ملف الفيديو." }
     return try {
         resolver.openOutputStream(destination)?.use { output ->
             source.inputStream().use { input -> input.copyTo(output) }
