@@ -76,10 +76,14 @@ fun MediaProApp(viewModel: HomeViewModel = hiltViewModel()) {
                 }
             }
             composable("projects") {
-                ProjectsScreen(projects) { project ->
-                    val route = if (project.kind == MediaKind.VIDEO) "video-editor" else "image-editor"
-                    navController.navigate("$route/${Uri.encode(project.uri)}")
-                }
+                ProjectsScreen(
+                    projects = projects,
+                    onProjectClick = { project ->
+                        val route = if (project.kind == MediaKind.VIDEO) "video-editor" else "image-editor"
+                        navController.navigate("$route/${Uri.encode(project.uri)}")
+                    },
+                    onDeleteProject = viewModel::deleteProject
+                )
             }
             composable(
                 route = "image-editor/{uri}",
