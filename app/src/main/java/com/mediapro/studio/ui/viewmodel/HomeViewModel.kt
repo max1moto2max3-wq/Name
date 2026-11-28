@@ -1,5 +1,6 @@
 package com.mediapro.studio.ui.viewmodel
 
+import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -7,6 +8,7 @@ import com.mediapro.studio.domain.model.MediaKind
 import com.mediapro.studio.domain.model.MediaProject
 import com.mediapro.studio.domain.repository.ProjectRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.stateIn
@@ -17,7 +19,10 @@ import java.util.UUID
 import javax.inject.Inject
 
 @HiltViewModel
-class HomeViewModel @Inject constructor(private val repository: ProjectRepository) : ViewModel() {
+class HomeViewModel @Inject constructor(
+    private val repository: ProjectRepository,
+    @ApplicationContext private val appContext: Context
+) : ViewModel() {
     val projects = repository.observeProjects().stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
@@ -46,14 +51,9 @@ class HomeViewModel @Inject constructor(private val repository: ProjectRepositor
                 runCatching {
                     val uri = Uri.parse(project.uri)
                     if (uri.scheme == "file") {
-                        val importedDirectory = File(
-                            // Imported media is deliberately stored under this app-private directory.
-                            File(project.uri.removePrefix("file:")).parentFile?.parentFile,
-                            "imported_media"
-                        )
+                        val importedDirectory = File(appContext.filesDir, "imported_media").canonicalFile
                         val candidate = File(uri.path ?: return@runCatching).canonicalFile
-                        val allowedDirectory = importedDirectory.canonicalFile
-                        if (candidate.parentFile == allowedDirectory) candidate.delete()
+                        if (candidate.parentFile == importedDirectory) candidate.delete()
                     }
                 }
             }
